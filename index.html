@@ -4718,11 +4718,30 @@
         return { name: out.join(" "), dept, subjectFound: !!dept };
       }
 
-      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, splitName, cellToText, findColumns };
+      // استنتاج تخصص كل صف: من المادة المكتوبة، وإلا من الصف المسمّى التالي القريب (الجدول مرتّب بالأقسام)
+      function inferDepts(rows, reversed) {
+        const sp = rows.map(r => splitName(r.nameFrags, reversed));
+        return sp.map((x, k) => {
+          if (x.dept) return { dept: x.dept, source: "label", name: x.name };
+          for (let g = 1; g <= 4; g++) {
+            if (k + g < sp.length && sp[k + g].dept) return { dept: sp[k + g].dept, source: "inferred", name: x.name };
+          }
+          let prev = null, next = null;
+          for (let g = k - 1; g >= 0; g--) if (sp[g].dept) { prev = sp[g].dept; break; }
+          for (let g = k + 1; g < sp.length; g++) if (sp[g].dept) { next = sp[g].dept; break; }
+          if (prev === "arabic" && next === "english") return { dept: "social", source: "inferred", name: x.name };
+          return { dept: "skills", source: "unknown", name: x.name };
+        });
+      }
+
+      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, splitName, inferDepts, cellToText, findColumns };
     })();
 
     // ==================== تطبيق نتائج قراءة PDF على الكادر ====================
-    function applyAscRowsToState(parsed, label, skipEmpty) {
+    function applyAscRowsToState(parsed, label, opts) {
+      opts = (opts && typeof opts === "object") ? opts : { skipEmpty: !!opts };
+      const skipEmpty = !!opts.skipEmpty;
+      const deptMap = opts.depts || {};
       const clearOldEl = document.getElementById("pdfClearOldScheduleCb");
       const clearOld = clearOldEl ? clearOldEl.checked : true;
       const rows = parsed.rows;
@@ -4734,6 +4753,11 @@
       mr.matches.forEach((m, ri) => {
         const row = rows[ri];
         const member = m.staff;
+        if (opts.syncDept && deptMap["m" + ri] && deptMap["m" + ri] !== member.dept) {
+          member.dept = deptMap["m" + ri];
+          const subs = getDeptObj(member.dept).subSkills;
+          if (!subs.includes(member.subDept)) member.subDept = subs[0] || "";
+        }
         if (skipEmpty && !row.cells) { removedEmpty.push(member.name); state.staff = state.staff.filter(x => x.id !== member.id); mr.matches.delete(ri); return; }
         if (clearOld) member.schedule = emptySchedule();
         SCHOOL_DAYS.forEach(d => {
@@ -4752,7 +4776,7 @@
         if (skipEmpty && !r.cells) { removedEmpty.push(AscPdf.splitName(r.nameFrags, mr.reversedDominant).name + " (لم تُضف)"); return; }
         const sp = AscPdf.splitName(r.nameFrags, mr.reversedDominant);
         const name = clean(sp.name) || `معلمة (ص${r.page}/س${r.row})`;
-        const dept = sp.dept || "skills";
+        const dept = deptMap[ri] || sp.dept || "skills";
         const nm = {
           id: "st-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
           name,
@@ -4848,6 +4872,7 @@
       const mr = AscPdf.matchRows(rows, state.staff);
       const classSlots = {};
       const classTeachers = {};
+      const inf = AscPdf.inferDepts(rows, mr.reversedDominant);
       const list = rows.map((r, ri) => {
         const m = mr.matches.get(ri);
         const perDay = SCHOOL_DAYS.map(d => r.sched[d].filter(Boolean).length);
@@ -4858,7 +4883,8 @@
         (r.issues || []).forEach(i => probs.push(i.msg));
         if (total === 0) probs.push("لا توجد حصص لهذه المعلمة في الملف");
         if (total > 30) probs.push("عدد الحصص مرتفع (" + total + ")");
-        if (!m && !sp.dept) probs.push("تعذر تحديد المادة — ستُضاف إلى «المهارات الفردية»");
+        if (!m && inf[ri].source === "unknown") probs.push("تعذر تحديد التخصص — اختاريه من القائمة");
+        if (m && inf[ri].source === "label" && m.staff.dept !== inf[ri].dept) probs.push("التخصص في النظام (" + getDeptObj(m.staff.dept).shortName + ") يخالف المكتوب في الملف (" + getDeptObj(inf[ri].dept).shortName + ")");
         SCHOOL_DAYS.forEach((d, di) => r.sched[d].forEach((c, pi) => {
           if (!c) return;
           const mm = String(c).match(/^(\d+)\/(.+)$/);
@@ -4871,7 +4897,7 @@
             (classTeachers[key] = classTeachers[key] || []).push(ri);
           });
         }));
-        return { ri, page: r.page, row: r.row, pdfName, total, perDay, merged: (r.merged || []).length, notes: [], matched: m ? m.staff.name : null, newName: m ? null : sp.name, newDept: m ? null : (sp.dept || "skills"), probs };
+        return { ri, page: r.page, row: r.row, pdfName, total, perDay, merged: (r.merged || []).length, notes: [], matched: m ? m.staff.name : null, newName: m ? null : sp.name, newDept: m ? null : inf[ri].dept, deptSource: inf[ri].source, fileDept: inf[ri].dept, curDept: m ? m.staff.dept : null, probs };
       });
       const clsIssues = [];
       Object.keys(classSlots).sort().forEach(k => { const n = classSlots[k].size; if (n !== 40) clsIssues.push(k + ": " + n + " حصة من 40"); });
@@ -4902,7 +4928,7 @@
           <tr class="ipv-row" data-flag="${x.probs.length ? 1 : 0}" style="border-bottom:1px solid #e2e8f0;${x.probs.length ? "background:#fffbeb" : ""}">
             <td style="padding:4px 6px;color:#64748b">${x.page}/${x.row}</td>
             <td style="padding:4px 6px;font-weight:700">${esc(x.pdfName)}</td>
-            <td style="padding:4px 6px">${x.matched ? "✓ " + esc(x.matched) : "➕ جديدة: " + esc(x.newName) + " (" + esc(getDeptObj(x.newDept).shortName) + ")"}</td>
+            <td style="padding:4px 6px">${x.matched ? "✓ " + esc(x.matched) + ' <span style="color:#64748b">(' + esc(getDeptObj(x.curDept).shortName) + ")</span>" : "➕ جديدة: " + esc(x.newName) + `<br><select class="ipv-dept" data-ri="${x.ri}" style="margin-top:3px;padding:2px 4px;border:1px solid ${x.deptSource === "label" ? "#94a3b8" : "#f59e0b"};border-radius:8px;font-size:11px">${DEPARTMENTS.map(d => `<option value="${d.id}" ${d.id === x.newDept ? "selected" : ""}>${esc(d.shortName)}</option>`).join("")}</select> <span style="font-size:10px;color:${x.deptSource === "label" ? "#047857" : "#b45309"}">${x.deptSource === "label" ? "من الملف" : x.deptSource === "inferred" ? "مستنتج — راجعيه" : "غير معروف"}</span>`}</td>
             <td style="padding:4px 6px;text-align:center;font-weight:800">${x.total}</td>
             <td style="padding:4px 6px;color:#475569;white-space:nowrap">${x.perDay.map((n, i) => dayNames[i] + " " + n).join(" · ")}${x.merged ? ` · <span style="color:#0369a1">حصص مزدوجة ${x.merged}</span>` : ""}</td>
             <td style="padding:4px 6px"><span style="color:#b45309">${x.probs.map(esc).join("<br>")}</span>${x.notes.length ? `<div style="color:#0369a1;font-size:11px">ℹ ${x.notes.map(esc).join(" • ")}</div>` : ""}</td>
@@ -4924,6 +4950,7 @@
               ${a.parsed.warnings && a.parsed.warnings.length ? `<div style="margin-top:6px;font-size:12px;color:#b45309">${a.parsed.warnings.map(w => "⚠ " + esc(w)).join("<br>")}</div>` : ""}
             </div>
             <div style="padding:8px 18px;font-size:12px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #e2e8f0">
+              <label style="cursor:pointer;color:#1d4ed8;font-weight:800"><input type="checkbox" id="ipvSyncDept"> تحديث تخصص المعلمات المطابقات بحسب الملف</label>
               <label style="cursor:pointer;color:#b91c1c;font-weight:800"><input type="checkbox" id="ipvSkipEmpty" checked> حذف المعلمات بلا حصص (${a.list.filter(x => !x.total).length})</label>
               <label style="cursor:pointer"><input type="checkbox" id="ipvOnlyFlag" ${flagged ? "" : "disabled"}> إظهار الصفوف التي بها ملاحظات فقط</label>
               <span style="color:#64748b">اسم PDF ← المعلمة في النظام | الحصص | التوزيع على الأيام | الملاحظات</span>
@@ -4937,7 +4964,11 @@
             </div>
           </div>`;
         document.body.appendChild(wrap);
-        const close = (ok) => { const se = wrap.querySelector("#ipvSkipEmpty").checked; wrap.remove(); resolve(ok ? { skipEmpty: se } : false); };
+        const close = (ok) => { const se = wrap.querySelector("#ipvSkipEmpty").checked, sd = wrap.querySelector("#ipvSyncDept").checked;
+          const depts = {};
+          wrap.querySelectorAll(".ipv-dept").forEach(sel => { depts[sel.dataset.ri] = sel.value; });
+          if (sd) a.list.forEach(x => { if (x.matched && x.deptSource === "label") depts["m" + x.ri] = x.fileDept; });
+          wrap.remove(); resolve(ok ? { skipEmpty: se, depts, syncDept: sd } : false); };
         wrap.querySelector("#ipvOk").addEventListener("click", () => close(true));
         wrap.querySelector("#ipvNo").addEventListener("click", () => close(false));
         const cb = wrap.querySelector("#ipvOnlyFlag");
@@ -4990,7 +5021,7 @@
           showToast("أُلغي الاستيراد ولم تتغير البيانات");
           return;
         }
-        const info = applyAscRowsToState(parsed, file.name, okImport.skipEmpty);
+        const info = applyAscRowsToState(parsed, file.name, okImport);
         statusEl.textContent = `✓ تم استيراد «${file.name}»: ${info.matched} معلمة مطابقة${info.added.length ? ` + ${info.added.length} مضافة` : ""} — ${info.cells} حصة`;
         document.getElementById("pdfMatchTimestamp").textContent = `آخر استيراد PDF: ${file.name}`;
         showPdfReport(info);
