@@ -579,6 +579,8 @@
             <button type="button" data-quick-role="أخصائية نفسية" class="quick-add-role-btn px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-bold text-xs transition">
               <span>+ أخصائية نفسية</span>
             </button>
+            <label class="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm" data-requires="import">📄 استيراد كادر من PDF<input id="staffPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" /></label>
+            <button type="button" data-x-act="clearStaff" data-requires="import" class="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm">🗑 تصفير الكادر والأسر</button>
             <button type="button" data-quick-role="ممرضة صحة مدرسية" class="quick-add-role-btn px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-xs transition">
               <span>+ ممرضة مدرسية</span>
             </button>
@@ -2455,7 +2457,7 @@
     }
 
     // --- حذف الجدول المستورد ---
-    function clearImportedSchedule() {
+    function clearImportedSchedule(preStaff) {
       if (!can("import")) { showToast("ليست لديكِ صلاحية", "error"); return; }
       const addedAuto = state.staff.filter(s => /أُضيفت تلقائياً/.test(s.matchType || "")).length;
       const flCount = (AUTH.users || []).filter(u => u.role === "familyLead").length;
@@ -2470,6 +2472,7 @@
           <button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:9px 18px;border:0;cursor:pointer">إلغاء</button>
         </div>`);
       const cs = w.querySelector("#clrStaff"), cf = w.querySelector("#clrFam");
+      if (preStaff) { cs.checked = true; cf.checked = true; }
       cf.onchange = () => { if (cf.checked) cs.checked = true; };
       cs.onchange = () => { if (!cs.checked) cf.checked = false; };
       w.querySelector("#clrOk").onclick = () => {
@@ -2571,6 +2574,7 @@
     function xAction(act) {
       if (act === "famAccounts") { if (can("accounts")) createFamilyAccounts(); }
       else if (act === "clearSchedule") clearImportedSchedule();
+      else if (act === "clearStaff") clearImportedSchedule(true);
       else if (act === "waGroup") window.open("https://wa.me/?text=" + encodeURIComponent(broadcastMessage()), "_blank", "noopener");
       else if (act === "waCopy") copyText(broadcastMessage());
       else if (act === "waQueue") waQueue();
@@ -2583,6 +2587,7 @@
     });
     document.addEventListener("change", e => {
       const t = e.target;
+      if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
       if (t.id === "timesImgInput") { importTimesImage(t.files[0]); t.value = ""; }
       else if (t.hasAttribute && t.hasAttribute("data-time-start")) { NOTIFY.times[Number(t.getAttribute("data-time-start"))] = t.value; saveNotify(); renderNotify(); }
       else if (t.hasAttribute && t.hasAttribute("data-time-end")) { NOTIFY.ends[Number(t.getAttribute("data-time-end"))] = t.value; saveNotify(); renderNotify(); }
@@ -4762,8 +4767,241 @@
         });
       }
 
-      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, splitName, inferDepts, cellToText, findColumns };
+      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, splitName, inferDepts, SUBJECT_RULES, flexRe, nz, revStr, cellToText, findColumns };
     })();
+
+
+    // ==================== استيراد كادر المدرسة من ملف PDF ====================
+    const StaffPdf = (() => {
+      const R = AscPdf;
+      const ROLE_RULES = [
+        ["مديرة المدرسة", "الإدارة المدرسية", ["مديرة المدرسة", "مديرة"]],
+        ["مساعدة المديرة", "الإدارة المدرسية", ["مساعدة المديرة", "مساعدة مديرة"]],
+        ["أخصائية اجتماعية", "الأخصائية الاجتماعية", ["أخصائية اجتماعية"]],
+        ["أخصائية نفسية", "الأخصائية النفسية", ["أخصائية نفسية"]],
+        ["أخصائية توجيه مهني", "التوجيه المهني", ["أخصائية توجيه مهني", "أخصائية توجيه", "موجهة مهنية"]],
+        ["أخصائية أنظمة مدرسية", "أنظمة مدرسية", ["أخصائية أنظمة مدرسية", "أخصائية أنظمة"]],
+        ["ممرضة صحة مدرسية", "ممرضة صحة مدرسية", ["ممرضة صحة مدرسية", "ممرضة"]],
+        ["معلمة أولى", null, ["معلمة أولى", "معلم أول"]],
+        ["معلمة", null, ["معلمة", "معلم", "مدرسة"]]
+      ];
+      const SKILL_RULES = [
+        ["تقنية المعلومات", ["تقنية المعلومات", "حاسب آلي", "الحاسوب"]],
+        ["الفنون البصرية", ["الفنون البصرية", "تربية فنية", "فنون"]],
+        ["الرياضة المدرسية", ["الرياضة المدرسية", "الرياضة", "تربية بدنية"]],
+        ["المهارات الحياتية", ["المهارات الحياتية"]],
+        ["المهارات الموسيقية", ["المهارات الموسيقية", "الموسيقى", "موسيقى"]]
+      ];
+      const phraseRe = (ph) => new RegExp(ph.split(" ").map(w => R.flexRe(R.nz(w))).join("\\s+"));
+      const HEADER = /(^|\s)(الاسم|المادة|التخصص|الوظيفة|المسمي|الهاتف|الرقم|م\.?)(\s|$)/;
+      const nzs = (t) => R.nz(t).replace(/\s+/g, " ").trim();
+
+      function groupLines(items) {
+        const sorted = items.slice().sort((a, b) => a.y - b.y || b.x - a.x);
+        const lines = [];
+        sorted.forEach(it => {
+          const ln = lines.find(l => Math.abs(l.y - it.y) <= Math.max(3, it.h * 0.5));
+          if (ln) ln.items.push(it); else lines.push({ y: it.y, items: [it] });
+        });
+        lines.forEach(l => l.items.sort((a, b) => (b.x + b.w) - (a.x + a.w)));
+        return lines.sort((a, b) => a.y - b.y);
+      }
+      // ملفات PDF المصدّرة من Word/Chrome تحوي كل حرف عنصراً مستقلاً: نجمعها في كلمات بحسب التقارب ثم نعكس ترتيبها المرئي إلى المنطقي
+      function mergeGlyphLines(lines) {
+        lines.forEach(l => {
+          const its = l.items.slice().sort((a, b) => a.x - b.x);
+          const words = [];
+          its.forEach(it => {
+            const last = words[words.length - 1];
+            const gap = last ? it.x - (last.x + last.w) : 0;
+            // العناصر متعددة الحروف تأتي بترتيب منطقي فنقلبها إلى الترتيب المرئي قبل الدمج
+            const raw = (it.str.length > 1 && /[\u0600-\u06FF\uFB50-\uFEFF]/.test(it.str)) ? Array.from(it.str).reverse().join("") : it.str;
+            if (last && gap <= Math.max(1.2, it.h * 0.2)) { last.str += raw; last.w = it.x + it.w - last.x; }
+            else words.push({ str: raw, x: it.x, y: it.y, w: it.w, h: it.h });
+          });
+          words.forEach(w => {
+            w.str = /[\u0600-\u06FF\uFB50-\uFEFF]/.test(w.str) ? Array.from(w.str).reverse().join("").normalize("NFKC") : w.str.normalize("NFKC");
+            w.glyph = true;
+          });
+          l.items = words.sort((a, b) => (b.x + b.w) - (a.x + a.w));
+        });
+      }
+      function isGlyphPage(pg) {
+        const n = pg.items.length; if (n < 20) return false;
+        return pg.items.filter(i => String(i.str || "").length <= 2).length / n > 0.6;
+      }
+      function detectReversed(pages) {
+        let fwd = 0, rev = 0;
+        pages.forEach(pg => pg.glyphMode ? null : pg.items.forEach(it => {
+          String(it.str || "").normalize("NFKC").split(/\s+/).forEach(w => {
+            if (w.length < 4) return;
+            if (/^ال/.test(w)) fwd++;
+            if (/لا$/.test(w) && !/^ال/.test(w)) rev++;
+          });
+        }));
+        return rev > fwd * 1.5;
+      }
+      function parseLine(items, reversed) {
+        const texts = items.map(i => ({ t: String(i.str || "").normalize("NFKC").replace(/\s+/g, " ").trim(), g: i.glyph })).filter(x => x.t)
+          .map(x => (reversed && !x.g) ? x.t.split(" ").map(R.revStr).join(" ") : x.t);
+        let line = texts.join(" ");
+        let digits = line.replace(/[٠-٩]/g, c => String("٠١٢٣٤٥٦٧٨٩".indexOf(c)));
+        if (!/[؀-ۿ]/.test(line)) return null;
+        if (HEADER.test(nzs(line)) && /الاسم|المادة|التخصص|الوظيفه|المسمي/.test(nzs(line))) return null;
+        let phone = "";
+        const pm = digits.replace(/[^\d+\s]/g, " ").match(/(?:\+?968[\s-]?)?[279]\d{7}/);
+        if (pm) { phone = pm[0].replace(/\D/g, "").replace(/^968/, ""); }
+        // أزل الأرقام من النص
+        line = line.replace(/[0-9٠-٩+]+/g, " ").replace(/\s+/g, " ").trim();
+        // الدور
+        let role = "", subDeptHint = "", dept = null;
+        let norm = line;
+        for (const [label, sub, alts] of ROLE_RULES) {
+          let hit = false;
+          for (const alt of alts) {
+            const re = phraseRe(alt);
+            if (re.test(norm)) { norm = norm.replace(re, " "); hit = true; break; }
+          }
+          if (hit) { role = label; if (sub) { subDeptHint = sub; dept = "specialists"; } break; }
+        }
+        // المادة
+        let sp = null;
+        for (const [id, words] of R.SUBJECT_RULES) {
+          for (const w of words) {
+            const re = new RegExp("(?:ال)?\\s*" + R.flexRe(w));
+            if (re.test(norm) || re.test(R.nz(norm))) { if (!sp) sp = id; norm = (re.test(norm) ? norm : R.nz(norm)).replace(re, " "); }
+          }
+        }
+        let skillSub = "";
+        if (!sp && dept !== "specialists") {
+          for (const [label, alts] of SKILL_RULES) {
+            const hit = alts.find(alt => phraseRe(alt).test(norm));
+            if (hit) { skillSub = label; sp = "skills"; norm = norm.replace(phraseRe(hit), " "); break; }
+          }
+        }
+        if (!dept) dept = sp;
+        const toks = norm.split(/\s+/).filter(t => t && t.length > 0 && !/^(لغه|تخصصيه|التربيه|ال|اللغه|المعلمه)$/.test(R.nz(t)));
+        const out = [];
+        toks.forEach(t => { if (out.length && t.length <= 2) out[out.length - 1] += t; else out.push(t); });
+        if (out.length < 2) return null;
+        return { name: out.join(" "), role: role || "معلمة", dept: dept || "", subDept: subDeptHint || skillSub || "", phone };
+      }
+
+      async function parse(pdfDoc, onProgress) {
+        const pages = [];
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          if (onProgress) onProgress(i, pdfDoc.numPages);
+          pages.push(await R.extractPage(await pdfDoc.getPage(i)));
+        }
+        pages.forEach(pg => { pg.glyphMode = isGlyphPage(pg); });
+        const reversed = detectReversed(pages);
+        const people = [];
+        pages.forEach((pg, pi) => { const ls = groupLines(pg.items); if (pg.glyphMode) mergeGlyphLines(ls); ls.forEach(l => {
+          const r = parseLine(l.items, reversed);
+          if (r) people.push(Object.assign(r, { page: pi + 1 }));
+        }); });
+        return { people, reversed, pages: pages.length, textItems: pages.reduce((a, p) => a + p.items.length, 0) };
+      }
+      return { parse, parseLine };
+    })();
+
+    function showStaffImportPreview(res, label) {
+      const existing = state.staff;
+      const rows = res.people.map((p, i) => {
+        const vars = AscPdf.matchRows ? [[...p.name.split(" ").map(AscPdf.nz)], [...p.name.split(" ").map(AscPdf.nz).map(AscPdf.revStr)]] : [];
+        let best = null;
+        existing.forEach(st => { const sc = scoreStaffForName(st, p.name); if (sc >= 35 && (!best || sc > best.sc)) best = { st, sc }; });
+        return Object.assign({ i, dup: best ? best.st : null }, p);
+      });
+      return new Promise(resolve => {
+        const esc = esc2;
+        const w = xModal("");
+        w.firstElementChild.style.maxWidth = "1050px";
+        const deptOpts = (sel) => DEPARTMENTS.map(d => `<option value="${d.id}" ${d.id === sel ? "selected" : ""}>${esc(d.shortName)}</option>`).join("");
+        w.firstElementChild.innerHTML = `
+          <h3 style="font-weight:900;color:#0369a1;font-size:17px">📄 مراجعة كادر المدرسة قبل الإضافة — ${esc(label)}</h3>
+          <p style="font-size:12px;color:#475569;margin:4px 0">قرأ النظام <b>${rows.length}</b> اسمًا من ${res.pages} صفحة. عدّلي الاسم أو التخصص أو الوظيفة أو الهاتف، وألغي علامة الصف الذي لا تريدينه. المعلمات الموجودات بالفعل تُحدَّث بياناتهن ولا تتكرر.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin:6px 0">
+            <label style="color:#b91c1c;font-weight:800"><input type="checkbox" id="stfWipe"> تصفير الكادر الحالي أولًا (حذف كل المعلمات الحاليات ثم إضافة الملف)</label>
+          </div>
+          <div style="overflow:auto;max-height:55vh"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f1f5f9;position:sticky;top:0"><th style="padding:4px">✓</th><th style="padding:4px;text-align:right">الاسم</th><th style="padding:4px">التخصص / الأسرة</th><th style="padding:4px">الوظيفة</th><th style="padding:4px">الهاتف</th><th style="padding:4px">الحالة</th></tr></thead><tbody>
+          ${rows.map(r => `<tr data-i="${r.i}" style="border-bottom:1px solid #e2e8f0">
+            <td style="padding:3px;text-align:center"><input type="checkbox" class="sf-on" checked></td>
+            <td style="padding:3px"><input class="sf-name" value="${esc(r.name)}" style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:8px"></td>
+            <td style="padding:3px"><select class="sf-dept" style="padding:3px;border:1px solid ${r.dept ? "#cbd5e1" : "#f59e0b"};border-radius:8px">${deptOpts(r.dept || (r.dup ? r.dup.dept : "skills"))}</select></td>
+            <td style="padding:3px"><input class="sf-role" value="${esc(r.role)}" style="width:130px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:8px"></td>
+            <td style="padding:3px"><input class="sf-phone" value="${esc(r.phone)}" dir="ltr" style="width:100px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:8px"></td>
+            <td style="padding:3px;font-size:11px;color:${r.dup ? "#0369a1" : "#047857"}">${r.dup ? "موجودة: " + esc(r.dup.name) + " — تُحدَّث" : "جديدة"}${r.dept ? "" : '<br><span style="color:#b45309">تعذّر تحديد التخصص</span>'}</td></tr>`).join("")}
+          </tbody></table></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button type="button" id="stfOk" style="background:#0369a1;color:#fff;font-weight:800;border-radius:12px;padding:10px 20px;border:0;cursor:pointer">✓ اعتماد الإضافة</button>
+            <button type="button" data-x-close id="stfNo" style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:10px 20px;border:0;cursor:pointer">إلغاء</button>
+          </div>`;
+        w.querySelector("#stfOk").onclick = () => {
+          const out = [];
+          w.querySelectorAll("tbody tr").forEach(tr => {
+            if (!tr.querySelector(".sf-on").checked) return;
+            const base = rows[Number(tr.dataset.i)];
+            out.push({ base, name: tr.querySelector(".sf-name").value, dept: tr.querySelector(".sf-dept").value, role: tr.querySelector(".sf-role").value, phone: tr.querySelector(".sf-phone").value });
+          });
+          const wipe = w.querySelector("#stfWipe").checked;
+          w.remove(); resolve({ out, wipe });
+        };
+        w.querySelector("#stfNo").addEventListener("click", () => resolve(null));
+      });
+    }
+    function scoreStaffForName(staff, name) {
+      const vars = [name.split(" ").filter(Boolean)];
+      const toks = String(staff.name || "").trim().split(/\s+/).filter(Boolean);
+      if (toks.length < 2) return 0;
+      const nzw = AscPdf.nz;
+      const w = vars[0].map(nzw);
+      const core = (t) => nzw(t).replace(/^ال/, "").replace(/(يه|ي|ه|ا|ء)$/, "");
+      const first = core(toks[0]), last = core(toks[toks.length - 1]);
+      const cw = w.map(core);
+      let sc = 0;
+      if (cw.includes(first)) sc += 10;
+      if (cw.includes(last)) sc += 25;
+      return sc;
+    }
+    async function handleStaffPdf(file) {
+      if (!file) return;
+      if (!can("import")) { showToast("ليست لديكِ صلاحية", "error"); return; }
+      try {
+        if (!window.pdfjsLib) throw new Error("تعذر تحميل مكتبة قراءة PDF. تحققي من الاتصال بالإنترنت.");
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        showToast("جاري قراءة ملف الكادر...");
+        const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        const res = await StaffPdf.parse(pdf);
+        if (res.textItems < 10) { showToast("الملف صورة ممسوحة — لا يمكن قراءته. صدّريه PDF نصيًا", "error"); return; }
+        if (!res.people.length) { showToast("لم يُعثر على أسماء معلمات في الملف", "error"); return; }
+        const dec = await showStaffImportPreview(res, file.name);
+        if (!dec) { showToast("أُلغي استيراد الكادر"); return; }
+        if (dec.wipe) { state.staff = []; state.absences = []; state.substitutions = []; state.byDate = {}; }
+        let added = 0, updated = 0;
+        dec.out.forEach(o => {
+          const name = clean(o.name); if (!name) return;
+          let m = null, bestSc = 0;
+          state.staff.forEach(st => { const sc = scoreStaffForName(st, name); if (sc >= 35 && sc > bestSc) { m = st; bestSc = sc; } });
+          const subs = getDeptObj(o.dept).subSkills;
+          const sub = o.base.subDept && subs.includes(o.base.subDept) ? o.base.subDept : (subs[0] || "");
+          if (m) {
+            m.dept = o.dept; if (!subs.includes(m.subDept)) m.subDept = sub;
+            if (clean(o.role)) m.role = clean(o.role);
+            if (clean(o.phone)) m.phone = clean(o.phone);
+            updated++;
+          } else {
+            const nm = { id: "st-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6), name, dept: o.dept, subDept: sub, role: clean(o.role) || "معلمة", phone: clean(o.phone), subCount: 0, schedule: emptySchedule(), quota: 0, matchType: `أُضيفت من كادر «${clean(file.name)}»` };
+            sanitizeStaffRecord(nm); state.staff.push(nm); added++;
+          }
+        });
+        invalidateCaches(); saveState(); renderAll();
+        audit(`استيراد كادر من PDF: ${added} جديدة، ${updated} محدّثة`);
+        showToast(`تم استيراد الكادر: ${added} جديدة و${updated} محدّثة`);
+      } catch (err) {
+        showToast("تعذرت قراءة ملف الكادر: " + clean(err && err.message ? err.message : err), "error");
+      }
+    }
 
     // ==================== تطبيق نتائج قراءة PDF على الكادر ====================
     function applyAscRowsToState(parsed, label, opts) {
