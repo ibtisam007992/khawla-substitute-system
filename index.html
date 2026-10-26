@@ -145,9 +145,13 @@
       <select id="accRole" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold">
         <option value="principal">مديرة المدرسة</option>
         <option value="assistant">مساعدة المديرة</option>
-        <option value="familyLead">مسؤولة احتياطي الأسرة</option>
+        <option value="familyLead">مسؤولة احتياطي أسرة (معلمة من الكادر — أسرتها فقط)</option>
+        <option value="reserveAll">مسؤولة احتياطي جميع الأسر (بصلاحيات مساعدة المديرة)</option>
         <option value="tech">مسؤول فني</option>
       </select>
+      <label id="accStaffWrap" class="block text-[11px] font-bold text-slate-600 hidden">اختاري المعلمة من الكادر لمنحها الصلاحية
+        <select id="accStaff" class="mt-1 w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold"></select>
+      </label>
       <select id="accDept" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold hidden"></select>
       <input id="accPass" type="password" autocomplete="new-password" placeholder="كلمة المرور (اتركيها فارغة للإبقاء على الحالية)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
       <label class="flex items-center gap-2 text-xs font-bold text-slate-700"><input id="accActive" type="checkbox" checked class="accent-teal-700" /> الحساب مفعّل</label>
@@ -1931,19 +1935,21 @@
     // ==================================================================
     //  الحسابات والصلاحيات + الإشعارات الصوتية + الجولة التوضيحية + الدعم الفني
     // ==================================================================
-    const ROLES = { tech: "مسؤول فني", principal: "مديرة المدرسة", assistant: "مساعدة المديرة", familyLead: "مسؤولة احتياطي الأسرة" };
+    const ROLES = { tech: "مسؤول فني", principal: "مديرة المدرسة", assistant: "مساعدة المديرة", familyLead: "مسؤولة احتياطي الأسرة", reserveAll: "مسؤولة احتياطي جميع الأسر" };
     const ALL_TABS = ["daily", "departments", "pdfmatch", "master", "stats", "notify", "accounts", "support"];
     const ROLE_TABS = {
       tech: ALL_TABS,
       principal: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"],
       assistant: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"],
-      familyLead: ["daily", "departments", "master", "stats", "notify", "support"]
+      familyLead: ["daily", "departments", "master", "stats", "notify", "support"],
+      reserveAll: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"]
     };
     const ROLE_ACTIONS = {
       tech: ["import", "editStaff", "deleteStaff", "accounts", "restore"],
       principal: ["import", "editStaff", "deleteStaff"],
       assistant: ["import", "editStaff"],
-      familyLead: []
+      familyLead: [],
+      reserveAll: ["import", "editStaff"]
     };
     const K_ACC = "khawla_accounts_v1", K_AUDIT = "khawla_audit_v1", K_TICKETS = "khawla_tickets_v1",
       K_NOTIFY = "khawla_notify_v1", K_SUPPORT = "khawla_support_v1";
@@ -2133,7 +2139,7 @@
         <tbody>${AUTH.users.map(u => `<tr class="border-b border-slate-100">
           <td class="p-2 font-extrabold">${u.name}</td>
           <td class="p-2 font-mono" dir="ltr">${u.username}</td>
-          <td class="p-2 font-bold">${ROLES[u.role]}${u.role === "familyLead" ? ` — ${getDeptObj(u.deptId).shortName}` : ""}</td>
+          <td class="p-2 font-bold">${ROLES[u.role]}${u.role === "familyLead" ? ` — ${getDeptObj(u.deptId).shortName}` : ""}${u.staffId && state.staff.find(m => m.id === u.staffId) ? `<div class="text-[10px] text-slate-500 font-semibold">معلمة: ${state.staff.find(m => m.id === u.staffId).name}</div>` : ""}</td>
           <td class="p-2 text-slate-500">${u.last ? u.last.slice(0, 16).replace("T", " ") : "—"}</td>
           <td class="p-2">${u.active ? '<span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">مفعّل</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">معطّل</span>'}</td>
           <td class="p-2 whitespace-nowrap">
@@ -2159,10 +2165,19 @@
       dsel.innerHTML = DEPARTMENTS.map(d => `<option value="${d.id}">${d.name}</option>`).join("");
       dsel.value = u && u.deptId ? u.deptId : "arabic";
       dsel.classList.toggle("hidden", document.getElementById("accRole").value !== "familyLead");
+      const ssel = document.getElementById("accStaff");
+      ssel.innerHTML = `<option value="">— بدون ربط بمعلمة —</option>` + state.staff.slice().sort((a, b) => a.name.localeCompare(b.name, "ar")).map(m => `<option value="${m.id}">${esc2(m.name)} — ${esc2(getDeptObj(m.dept).shortName)}</option>`).join("");
+      ssel.value = u && u.staffId && state.staff.some(m => m.id === u.staffId) ? u.staffId : "";
+      toggleAccStaff();
       document.getElementById("accMsg").textContent = "";
       document.getElementById("accountModal").classList.remove("hidden");
     }
 
+    function toggleAccStaff() {
+      const r = document.getElementById("accRole").value;
+      document.getElementById("accStaffWrap").classList.toggle("hidden", r !== "familyLead" && r !== "reserveAll");
+      document.getElementById("accDept").classList.toggle("hidden", r !== "familyLead");
+    }
     async function saveAccount() {
       const msg = document.getElementById("accMsg");
       const id = document.getElementById("accId").value;
@@ -2191,6 +2206,7 @@
         audit(`تعديل حساب (${u.name})`);
       }
       u.name = name; u.role = role; u.deptId = deptId; u.active = active;
+      u.staffId = (role === "familyLead" || role === "reserveAll") ? document.getElementById("accStaff").value : "";
       if (pw) { u.salt = rid(); u.hash = await hashPass(pw, u.salt); audit(`تعيين كلمة مرور جديدة للحساب (${u.name})`); }
       saveUsers();
       if (AUTH.me && AUTH.me.id === u.id) { AUTH.me = u; }
@@ -3118,7 +3134,7 @@
     // ==================== التهيئة ====================
     function initAuth() {
       const st = document.createElement("style");
-      st.textContent = `body[data-role="familyLead"] [data-edit-staff], body[data-role="familyLead"] [data-delete-staff], body[data-role="assistant"] [data-delete-staff]{display:none!important}`;
+      st.textContent = `body[data-role="familyLead"] [data-edit-staff], body[data-role="familyLead"] [data-delete-staff], body[data-role="assistant"] [data-delete-staff], body[data-role="reserveAll"] [data-delete-staff]{display:none!important}`;
       document.head.appendChild(st);
       AUTH.users = lsGet(K_ACC, []);
       const ctl = {
@@ -3133,7 +3149,13 @@
         }
       };
       Object.keys(ctl).forEach(id => document.getElementById(id).addEventListener("submit", e => { e.preventDefault(); ctl[id](); }));
-      document.getElementById("accRole").addEventListener("change", e => document.getElementById("accDept").classList.toggle("hidden", e.target.value !== "familyLead"));
+      document.getElementById("accRole").addEventListener("change", toggleAccStaff);
+      document.getElementById("accStaff").addEventListener("change", e => {
+        const m = state.staff.find(x => x.id === e.target.value); if (!m) return;
+        if (!document.getElementById("accId").value || !document.getElementById("accName").value.trim()) document.getElementById("accName").value = m.name;
+        if (document.getElementById("accRole").value === "familyLead") document.getElementById("accDept").value = m.dept;
+        if (!document.getElementById("accUser").value && !document.getElementById("accId").value) document.getElementById("accUser").value = "u" + Math.random().toString(36).slice(2, 7);
+      });
       document.getElementById("supRestoreInput").addEventListener("change", e => { restoreBackup(e.target.files[0]); e.target.value = ""; });
       document.getElementById("supTechPhone").addEventListener("change", e => {
         lsSet(K_SUPPORT, Object.assign(lsGet(K_SUPPORT, {}), { techPhone: clean(e.target.value) })); showToast("تم حفظ رقم المسؤول الفني");
