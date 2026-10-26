@@ -4781,8 +4781,8 @@
       mr.matches.forEach((m, ri) => {
         const row = rows[ri];
         const member = m.staff;
-        if (opts.syncDept && deptMap["m" + ri] && deptMap["m" + ri] !== member.dept) {
-          member.dept = deptMap["m" + ri];
+        if (deptMap[ri] && deptMap[ri] !== member.dept) {
+          member.dept = deptMap[ri];
           const subs = getDeptObj(member.dept).subSkills;
           if (!subs.includes(member.subDept)) member.subDept = subs[0] || "";
         }
@@ -4901,6 +4901,11 @@
       const classSlots = {};
       const classTeachers = {};
       const inf = AscPdf.inferDepts(rows, mr.reversedDominant);
+      // الأخصائيات والإدارة (بحسب الوظيفة المسجلة) يبقين في قسمهن ولا يُستنتج لهن تخصص دراسي
+      inf.forEach((x, ri) => {
+        const m = mr.matches.get(ri);
+        if (m && /أخصائية|مديرة|مساعدة|ممرضة|موجهة|توجيه/.test(m.staff.role || "")) inf[ri] = { dept: "specialists", source: "label", name: x.name };
+      });
       const list = rows.map((r, ri) => {
         const m = mr.matches.get(ri);
         const perDay = SCHOOL_DAYS.map(d => r.sched[d].filter(Boolean).length);
@@ -4912,7 +4917,7 @@
         if (total === 0) probs.push("لا توجد حصص لهذه المعلمة في الملف");
         if (total > 30) probs.push("عدد الحصص مرتفع (" + total + ")");
         if (!m && inf[ri].source === "unknown") probs.push("تعذر تحديد التخصص — اختاريه من القائمة");
-        if (m && inf[ri].source === "label" && m.staff.dept !== inf[ri].dept) probs.push("التخصص في النظام (" + getDeptObj(m.staff.dept).shortName + ") يخالف المكتوب في الملف (" + getDeptObj(inf[ri].dept).shortName + ")");
+        if (m && inf[ri].source !== "unknown" && m.staff.dept !== inf[ri].dept) probs.push("التخصص في النظام (" + getDeptObj(m.staff.dept).shortName + ") يخالف " + (inf[ri].source === "label" ? "المكتوب في الملف" : "المستنتج من الملف") + " (" + getDeptObj(inf[ri].dept).shortName + ")");
         SCHOOL_DAYS.forEach((d, di) => r.sched[d].forEach((c, pi) => {
           if (!c) return;
           const mm = String(c).match(/^(\d+)\/(.+)$/);
@@ -4956,7 +4961,7 @@
           <tr class="ipv-row" data-flag="${x.probs.length ? 1 : 0}" style="border-bottom:1px solid #e2e8f0;${x.probs.length ? "background:#fffbeb" : ""}">
             <td style="padding:4px 6px;color:#64748b">${x.page}/${x.row}</td>
             <td style="padding:4px 6px;font-weight:700">${esc(x.pdfName)}</td>
-            <td style="padding:4px 6px">${x.matched ? "✓ " + esc(x.matched) + ' <span style="color:#64748b">(' + esc(getDeptObj(x.curDept).shortName) + ")</span>" : "➕ جديدة: " + esc(x.newName) + `<br><select class="ipv-dept" data-ri="${x.ri}" style="margin-top:3px;padding:2px 4px;border:1px solid ${x.deptSource === "label" ? "#94a3b8" : "#f59e0b"};border-radius:8px;font-size:11px">${DEPARTMENTS.map(d => `<option value="${d.id}" ${d.id === x.newDept ? "selected" : ""}>${esc(d.shortName)}</option>`).join("")}</select> <span style="font-size:10px;color:${x.deptSource === "label" ? "#047857" : "#b45309"}">${x.deptSource === "label" ? "من الملف" : x.deptSource === "inferred" ? "مستنتج — راجعيه" : "غير معروف"}</span>`}</td>
+            <td style="padding:4px 6px">${x.matched ? "✓ " + esc(x.matched) : "➕ جديدة: " + esc(x.newName)}<br><select class="ipv-dept" data-ri="${x.ri}" data-cur="${x.curDept || ""}" data-inf="${x.fileDept}" data-src="${x.deptSource}" style="margin-top:3px;padding:2px 4px;border:1px solid ${x.deptSource === "label" ? "#94a3b8" : "#f59e0b"};border-radius:8px;font-size:11px">${DEPARTMENTS.map(d => `<option value="${d.id}">${esc(d.shortName)}</option>`).join("")}</select> <span style="font-size:10px;color:${x.deptSource === "label" ? "#047857" : "#b45309"}">${x.deptSource === "label" ? "من الملف" : x.deptSource === "inferred" ? "مستنتج — راجعيه" : "غير معروف"}</span></td>
             <td style="padding:4px 6px;text-align:center;font-weight:800">${x.total}</td>
             <td style="padding:4px 6px;color:#475569;white-space:nowrap">${x.perDay.map((n, i) => dayNames[i] + " " + n).join(" · ")}${x.merged ? ` · <span style="color:#0369a1">حصص مزدوجة ${x.merged}</span>` : ""}</td>
             <td style="padding:4px 6px"><span style="color:#b45309">${x.probs.map(esc).join("<br>")}</span>${x.notes.length ? `<div style="color:#0369a1;font-size:11px">ℹ ${x.notes.map(esc).join(" • ")}</div>` : ""}</td>
@@ -4978,7 +4983,7 @@
               ${a.parsed.warnings && a.parsed.warnings.length ? `<div style="margin-top:6px;font-size:12px;color:#b45309">${a.parsed.warnings.map(w => "⚠ " + esc(w)).join("<br>")}</div>` : ""}
             </div>
             <div style="padding:8px 18px;font-size:12px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #e2e8f0">
-              <label style="cursor:pointer;color:#1d4ed8;font-weight:800"><input type="checkbox" id="ipvSyncDept"> تحديث تخصص المعلمات المطابقات بحسب الملف</label>
+              <label style="cursor:pointer;color:#1d4ed8;font-weight:800"><input type="checkbox" id="ipvSyncDept" checked> تصحيح تخصصات الأسر تلقائياً حسب الملف (يمكن تعديل كل معلمة من القائمة)</label>
               <label style="cursor:pointer;color:#b91c1c;font-weight:800"><input type="checkbox" id="ipvSkipEmpty" checked> حذف المعلمات بلا حصص (${a.list.filter(x => !x.total).length})</label>
               <label style="cursor:pointer"><input type="checkbox" id="ipvOnlyFlag" ${flagged ? "" : "disabled"}> إظهار الصفوف التي بها ملاحظات فقط</label>
               <span style="color:#64748b">اسم PDF ← المعلمة في النظام | الحصص | التوزيع على الأيام | الملاحظات</span>
@@ -4995,10 +5000,18 @@
         const close = (ok) => { const se = wrap.querySelector("#ipvSkipEmpty").checked, sd = wrap.querySelector("#ipvSyncDept").checked;
           const depts = {};
           wrap.querySelectorAll(".ipv-dept").forEach(sel => { depts[sel.dataset.ri] = sel.value; });
-          if (sd) a.list.forEach(x => { if (x.matched && x.deptSource === "label") depts["m" + x.ri] = x.fileDept; });
           wrap.remove(); resolve(ok ? { skipEmpty: se, depts, syncDept: sd } : false); };
         wrap.querySelector("#ipvOk").addEventListener("click", () => close(true));
         wrap.querySelector("#ipvNo").addEventListener("click", () => close(false));
+        const setDepts = () => {
+          const sync = wrap.querySelector("#ipvSyncDept").checked;
+          wrap.querySelectorAll(".ipv-dept").forEach(sel => {
+            const cur = sel.dataset.cur, inf = sel.dataset.inf, src = sel.dataset.src;
+            sel.value = cur ? (sync && src !== "unknown" ? inf : cur) : inf;
+          });
+        };
+        setDepts();
+        wrap.querySelector("#ipvSyncDept").addEventListener("change", setDepts);
         const cb = wrap.querySelector("#ipvOnlyFlag");
         cb.addEventListener("change", () => wrap.querySelectorAll(".ipv-row").forEach(tr => { tr.style.display = cb.checked && tr.dataset.flag !== "1" ? "none" : ""; }));
       });
