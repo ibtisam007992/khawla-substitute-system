@@ -1048,11 +1048,12 @@
             <th class="border border-slate-800 p-2">المعلمة الغائبة</th>
             <th class="border border-slate-800 p-2">الأسرة / القسم</th>
             <th class="border border-slate-800 p-2">المعلمة المكلفة بالاحتياط</th>
+            <th class="border border-slate-800 p-2 min-w-[110px]">التوقيع بالعلم</th>
           </tr>
         </thead>
         <tbody id="printSubstitutionTableBody"></tbody>
       </table>
-      <div class="mt-8 text-xs font-bold">إعداد: معلمة تقنية المعلومات ابتسام الرواس</div>
+
     </div>
   </section>
 
@@ -1512,7 +1513,7 @@
     }
 
     // ==================== أسرة العلوم (أسرة مركّبة) ====================
-    const PREPARED_BY = "إعداد: معلمة تقنية المعلومات ابتسام الرواس";
+    const PREPARED_BY = "";
     const SCI_GROUP = ["physics", "chemistry", "biology"];
     function inDept(member, deptId) {
       if (!member) return false;
@@ -2451,7 +2452,7 @@
       w.querySelector("#famWa").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
       w.querySelector("#famPrint").onclick = () => {
         const pw = window.open("", "_blank"); if (!pw) return;
-        pw.document.write(`<html dir="rtl"><meta charset="utf-8"><body style="font-family:Tahoma,Arial;padding:24px"><h3>وزارة التعليم — مدرسة خولة بنت حكيم للبنات (9-12)</h3><h4>حسابات مسؤولات احتياطي الأسر</h4><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><tr><th>الأسرة</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr>${made.map(m => `<tr><td>${esc2(m.dept)}</td><td dir="ltr">${esc2(m.un)}</td><td dir="ltr">${esc2(m.pw)}</td></tr>`).join("")}</table><p style="margin-top:24px">إعداد: معلمة تقنية المعلومات ابتسام الرواس</p><script>print()<\/script></body></html>`);
+        pw.document.write(`<html dir="rtl"><meta charset="utf-8"><body style="font-family:Tahoma,Arial;padding:24px"><h3>وزارة التعليم — مدرسة خولة بنت حكيم للبنات (9-12)</h3><h4>حسابات مسؤولات احتياطي الأسر</h4><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><tr><th>الأسرة</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr>${made.map(m => `<tr><td>${esc2(m.dept)}</td><td dir="ltr">${esc2(m.un)}</td><td dir="ltr">${esc2(m.pw)}</td></tr>`).join("")}</table><script>print()<\/script></body></html>`);
         pw.document.close();
       };
     }
@@ -3818,6 +3819,7 @@
               <td class="border border-slate-800 p-2 font-bold">${absentT ? absentT.name : "—"}</td>
               <td class="border border-slate-800 p-2 font-extrabold">${subT ? subT.name : "غير محدد"}</td>
               <td class="border border-slate-800 p-2 text-xs text-center">${modeLabel}</td>
+              <td class="border border-slate-800 p-2" style="height:34px"></td>
             </tr>
           `;
         }).join("");
@@ -3851,6 +3853,7 @@
                   <th class="border border-slate-800 p-2">المعلمة الغائبة</th>
                   <th class="border border-slate-800 p-2">المعلمة البديلة المكلفة</th>
                   <th class="border border-slate-800 p-2 text-center">نوع التكليف</th>
+                  <th class="border border-slate-800 p-2 text-center min-w-[110px]">التوقيع بالعلم</th>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
@@ -4029,7 +4032,7 @@
             <td class="border border-slate-800 p-2">${absentT ? absentT.name : "—"}</td>
             <td class="border border-slate-800 p-2">${absentDept}</td>
             <td class="border border-slate-800 p-2 font-bold">${subT ? subT.name + " (" + getDeptObj(subT.dept).shortName + ")" : "غير محدد"}</td>
-            <td class="border border-slate-800 p-2"></td>
+            <td class="border border-slate-800 p-2" style="height:34px"></td>
           </tr>
         `;
       }).join("");
