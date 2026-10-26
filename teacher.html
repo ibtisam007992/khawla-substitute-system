@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>تنبيهات الاحتياط — مدرسة خولة بنت حكيم للبنات (9-12)</title>
+<meta name="theme-color" content="#0f766e" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="تنبيهاتي" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="teacher.webmanifest" />
+<link rel="icon" href="icons/favicon-64.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<style>
+  :root { --teal:#0f766e; --dark:#134e4a; --amber:#fbbf24; --bg:#f1f5f9; --ink:#0f172a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family: "Cairo", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; background:var(--bg); color:var(--ink); min-height:100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { background: linear-gradient(135deg,var(--dark),var(--teal)); color:#fff; padding:28px 20px 40px; text-align:center; }
+  header img { width:72px; height:72px; border-radius:18px; box-shadow:0 6px 18px rgba(0,0,0,.25); }
+  header h1 { font-size:20px; margin:12px 0 4px; } header p { margin:0; font-size:13px; opacity:.85; }
+  main { max-width:480px; margin:-24px auto 32px; padding:0 16px; display:grid; gap:14px; }
+  .card { background:#fff; border-radius:18px; padding:18px; box-shadow:0 4px 18px rgba(15,23,42,.08); display:grid; gap:12px; }
+  h2 { font-size:15px; margin:0; }
+  label { font-size:13px; font-weight:700; color:#334155; }
+  select, input { width:100%; padding:13px; font-size:16px; border:1px solid #cbd5e1; border-radius:12px; background:#f8fafc; font-family:inherit; }
+  button { font-family:inherit; font-size:16px; font-weight:800; border:0; border-radius:14px; padding:14px; cursor:pointer; background:var(--teal); color:#fff; }
+  button.alt { background:#e2e8f0; color:#0f172a; } button.warn { background:#fee2e2; color:#991b1b; } button:disabled { opacity:.5; }
+  .msg { font-size:13px; font-weight:700; min-height:18px; } .ok { color:#047857; } .bad { color:#b91c1c; } .info { color:#0369a1; }
+  .steps { margin:0; padding-right:20px; font-size:13px; line-height:1.9; color:#334155; }
+  .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#ecfdf5; color:#065f46; font-size:12px; font-weight:800; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <img src="icons/icon-192.png" alt="" />
+  <h1>تنبيهات حصص الاحتياط</h1>
+  <p>مدرسة خولة بنت حكيم للبنات (9-12)</p>
+</header>
+<main>
+  <section id="iosCard" class="card hidden">
+    <h2>📲 خطوة مهمة على الآيفون</h2>
+    <ol class="steps">
+      <li>افتحي هذه الصفحة في <b>Safari</b>.</li>
+      <li>اضغطي زر المشاركة ⬆️ ثم <b>إضافة إلى الشاشة الرئيسية</b>.</li>
+      <li>افتحي «تنبيهاتي» من الشاشة الرئيسية وأكملي الربط هناك.</li>
+    </ol>
+    <p class="msg info">إشعارات الآيفون تتطلب iOS 16.4 أو أحدث.</p>
+  </section>
+
+  <section id="joinCard" class="card">
+    <h2>اربطي هاتفكِ باسمكِ</h2>
+    <div id="codeRow" class="hidden"><label for="code">رمز المدرسة</label><input id="code" autocomplete="off" autocapitalize="characters" placeholder="مثال: ABCD2345" /></div>
+    <div><label for="who">اختاري اسمكِ</label><select id="who"><option value="">جاري تحميل الأسماء…</option></select></div>
+    <button id="btnEnable" disabled>🔔 تفعيل تنبيهات الاحتياط</button>
+    <p id="msg" class="msg"></p>
+  </section>
+
+  <section id="doneCard" class="card hidden">
+    <h2>✅ الهاتف مربوط</h2>
+    <p style="margin:0;font-size:14px">الاسم: <b id="doneName"></b> <span class="pill">يعمل والتطبيق مغلق</span></p>
+    <p style="margin:0;font-size:13px;color:#475569;line-height:1.8">ستصلكِ إشعارات عند تكليفكِ بحصة احتياط، وقبل بدايتها بدقائق، حتى لو كان التطبيق مغلقًا.</p>
+    <button id="btnTest" class="alt">▶ تجربة إشعار على هذا الهاتف</button>
+    <button id="btnLeave" class="warn">إلغاء ربط هذا الهاتف</button>
+    <p id="msg2" class="msg"></p>
+  </section>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const LS = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const standalone = (matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  const q = new URLSearchParams(location.search);
+  let saved = LS.get("khawla_join") || null;
+  let code = (q.get("code") || (saved && saved.code) || "").toUpperCase();
+  let vapid = "";
+
+  function say(el, text, cls) { el.textContent = text; el.className = "msg " + (cls || ""); }
+  function urlB64ToUint8(b64) {
+    const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+  async function api(path, opts) {
+    const r = await fetch("/api" + path, opts);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "تعذّر الاتصال بالخادم");
+    return j;
+  }
+  function showDone() {
+    $("joinCard").classList.add("hidden"); $("doneCard").classList.remove("hidden");
+    $("doneName").textContent = saved.name;
+  }
+
+  async function loadTeachers() {
+    if (!code) { $("codeRow").classList.remove("hidden"); $("who").innerHTML = '<option value="">أدخلي رمز المدرسة أولًا</option>'; return; }
+    try {
+      const [cfg, t] = await Promise.all([api("/config"), api("/teachers?code=" + encodeURIComponent(code))]);
+      vapid = cfg.vapid;
+      if (!t.teachers.length) { $("who").innerHTML = '<option value="">لا توجد أسماء بعد — اطلبي من المسؤولة مزامنة التطبيق</option>'; return; }
+      $("who").innerHTML = '<option value="">— اختاري اسمكِ —</option>' + t.teachers.map((x) => `<option value="${x.id}">${x.name}</option>`).join("");
+      $("btnEnable").disabled = false;
+      $("codeRow").classList.add("hidden");
+    } catch (e) { $("codeRow").classList.remove("hidden"); say($("msg"), e.message, "bad"); }
+  }
+
+  $("code").addEventListener("change", () => { code = $("code").value.trim().toUpperCase(); loadTeachers(); });
+
+  $("btnEnable").addEventListener("click", async () => {
+    const staffId = $("who").value;
+    if (!staffId) return say($("msg"), "اختاري اسمكِ من القائمة أولًا", "bad");
+    if (isIOS && !standalone) { $("iosCard").classList.remove("hidden"); return say($("msg"), "على الآيفون: أضيفي الصفحة إلى الشاشة الرئيسية ثم افتحيها من هناك", "bad"); }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return say($("msg"), "هذا المتصفح لا يدعم الإشعارات. استخدمي Chrome على أندرويد أو Safari على آيفون (بعد الإضافة للشاشة الرئيسية).", "bad");
+    $("btnEnable").disabled = true; say($("msg"), "جاري التفعيل…", "info");
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("لم يتم السماح بالإشعارات. فعّليها من إعدادات الهاتف ثم أعيدي المحاولة.");
+      const reg = await navigator.serviceWorker.register("./sw.js");
+      await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(vapid) });
+      const out = await api("/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, staffId, sub: sub.toJSON(), ua: navigator.userAgent }) });
+      saved = { code, staffId, name: out.name, endpoint: sub.endpoint }; LS.set("khawla_join", saved);
+      showDone();
+    } catch (e) { say($("msg"), e.message || "تعذّر التفعيل", "bad"); $("btnEnable").disabled = false; }
+  });
+
+  $("btnTest").addEventListener("click", async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification("اختبار التنبيه", { body: "هكذا سيصلكِ تذكير حصة الاحتياط 🔔", lang: "ar", dir: "rtl", vibrate: [400, 200, 400], icon: "./icons/icon-192.png", badge: "./icons/icon-192.png", tag: "local-test" });
+      say($("msg2"), "أُرسل إشعار تجريبي", "ok");
+    } catch (e) { say($("msg2"), "تعذّر عرض الإشعار — تأكدي من السماح بالإشعارات", "bad"); }
+  });
+
+  $("btnLeave").addEventListener("click", async () => {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await api("/unregister", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: saved.code, endpoint: sub.endpoint }) }).catch(() => {}); await sub.unsubscribe(); }
+    } catch (e) {}
+    LS.set("khawla_join", null); saved = null; location.reload();
+  });
+
+  if (isIOS && !standalone) $("iosCard").classList.remove("hidden");
+  if (saved && saved.staffId) showDone(); else loadTeachers();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>

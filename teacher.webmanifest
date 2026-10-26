@@ -1,0 +1,43 @@
+{
+  "name": "تنبيهات الاحتياط — مدرسة خولة بنت حكيم",
+  "short_name": "تنبيهاتي",
+  "description": "إدارة حصص الاحتياط والتنبيهات الصوتية — مدرسة خولة بنت حكيم للبنات (9-12)",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./teacher.html?source=pwa",
+  "scope": "./",
+  "id": "./teacher.html",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#0f766e",
+  "theme_color": "#0f766e",
+  "categories": [
+    "education",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": []
+}
