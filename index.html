@@ -586,7 +586,7 @@
               <span>+ أخصائية نفسية</span>
             </button>
             <label class="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm" data-requires="import">📄 استيراد كادر من PDF<input id="staffPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" /></label>
-            <button type="button" data-x-act="clearStaff" data-requires="import" class="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm">🗑 تصفير الكادر والأسر</button>
+            <button type="button" data-x-act="clearStaff" data-requires="deleteStaff" class="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm">🗑 تصفير الكادر والأسر</button>
             <button type="button" data-quick-role="ممرضة صحة مدرسية" class="quick-add-role-btn px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-xs transition">
               <span>+ ممرضة مدرسية</span>
             </button>
@@ -719,7 +719,7 @@
                 </label>
               </div>
               <div class="pt-1 flex items-center justify-center">
-                <button type="button" data-x-act="clearSchedule" data-requires="import" class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 font-bold text-[11px]">🗑 حذف الجدول / تصفير الكادر والأسر</button>
+                <button type="button" data-x-act="clearSchedule" data-requires="deleteStaff" class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 font-bold text-[11px]">🗑 حذف الجدول / تصفير الكادر والأسر</button>
               </div>
               <p id="pdfUploadStatusText" class="text-xs font-bold text-teal-800 pt-1">✓ الحالة الحالية: تم تحليل وإدخال ملف «أحدث جدول عام.pdf» (تاريخ 15/10/2026 — 11 صفحة aSc Timetables) بالكامل مع الأنصبة والحصص الفعلية لجميع المعلمات</p>
               <div id="pdfDiagnosticBox" class="hidden text-right p-3 rounded-xl bg-white border border-slate-300 text-[11px] space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
@@ -863,6 +863,13 @@
           <button type="button" data-x-act="waGroup" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">📲 إرسال الرسالة الموحدة (واتساب)</button>
           <button type="button" data-x-act="waCopy" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs">📋 نسخ الرسالة</button>
           <button type="button" data-x-act="waQueue" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs">👩‍🏫 إرسال لكل معلمة على حدة</button>
+          <button type="button" data-x-act="waMgmt" class="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs">🏫 إرسال للمديرة والمساعدة ومسؤولات الاحتياط</button>
+          <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 mr-auto">طريقة فتح واتساب:
+            <select id="waMode" class="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold">
+              <option value="auto">تلقائي (الأنسب للجهاز)</option>
+              <option value="app">تطبيق واتساب</option>
+              <option value="web">واتساب ويب (الحاسوب)</option>
+            </select></label>
         </div>
       </div>
       <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
@@ -1520,6 +1527,7 @@
 
     // ==================== أسرة العلوم (أسرة مركّبة) ====================
     const PREPARED_BY = "";
+    const PHONE_SEED = [];
     const SCI_GROUP = ["physics", "chemistry", "biology"];
     function inDept(member, deptId) {
       if (!member) return false;
@@ -1941,14 +1949,14 @@
       tech: ALL_TABS,
       principal: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"],
       assistant: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"],
-      familyLead: ["daily", "departments", "master", "stats", "notify", "support"],
+      familyLead: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"],
       reserveAll: ["daily", "departments", "pdfmatch", "master", "stats", "notify", "support"]
     };
     const ROLE_ACTIONS = {
       tech: ["import", "editStaff", "deleteStaff", "accounts", "restore"],
       principal: ["import", "editStaff", "deleteStaff"],
       assistant: ["import", "editStaff"],
-      familyLead: [],
+      familyLead: ["import", "editStaff"],
       reserveAll: ["import", "editStaff"]
     };
     const K_ACC = "khawla_accounts_v1", K_AUDIT = "khawla_audit_v1", K_TICKETS = "khawla_tickets_v1",
@@ -2403,7 +2411,7 @@
       else if (act === "wa" && g) {
         const ph = normalizePhone(g.teacher.phone);
         if (!ph) { showToast("لا يوجد رقم هاتف لهذه المعلمة — أضيفيه من (تعديل) في بيانات الكادر", "error"); return; }
-        window.open(`https://wa.me/${ph}?text=${encodeURIComponent(notifyMessage(g))}`, "_blank", "noopener");
+        openWhatsApp(ph, notifyMessage(g));
         audit(`إرسال إشعار واتساب للمعلمة ${g.teacher.name}`);
       }
     }
@@ -2451,8 +2459,10 @@
         let un = ("fam-" + d.id).toLowerCase().replace(/[^a-z0-9_.-]/g, "");
         if (AUTH.users.some(u => u.username === un)) un += "-" + rid().slice(0, 3);
         const pw = randPass(), salt = rid();
-        AUTH.users.push({ id: "u-" + rid(), name: "مسؤولة احتياطي " + d.shortName, username: un, role: "familyLead", deptId: d.id, salt, hash: await hashPass(pw, salt), active: true, created: new Date().toISOString(), last: "" });
-        made.push({ dept: d.shortName, un, pw });
+        // أسرة العلوم (الفيزياء + الكيمياء + الأحياء) مسؤولتها المعلمة ليثاء باعقبه
+        const lead = d.id === "science" ? state.staff.find(m => /ليثاء/.test(m.name) && /باعقب/.test(m.name)) : null;
+        AUTH.users.push({ id: "u-" + rid(), name: lead ? lead.name : "مسؤولة احتياطي " + d.shortName, staffId: lead ? lead.id : "", username: un, role: "familyLead", deptId: d.id, salt, hash: await hashPass(pw, salt), active: true, created: new Date().toISOString(), last: "" });
+        made.push({ dept: d.shortName + (lead ? " — " + lead.name : ""), un, pw });
       }
       saveUsers(); audit(`إنشاء ${made.length} حساب لمسؤولات الأسر`); renderAccounts();
       const text = "حسابات مسؤولات احتياطي الأسر — مدرسة خولة بنت حكيم للبنات (9-12)\n\n" + made.map(m => `${m.dept}\nاسم المستخدم: ${m.un}\nكلمة المرور: ${m.pw}`).join("\n\n") + "\n\nيمكن تغيير كلمة المرور بعد الدخول.";
@@ -2467,7 +2477,7 @@
           <button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button>
         </div>`);
       w.querySelector("#famCopy").onclick = () => copyText(text);
-      w.querySelector("#famWa").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+      w.querySelector("#famWa").onclick = () => openWhatsApp("", text);
       w.querySelector("#famPrint").onclick = () => {
         const pw = window.open("", "_blank"); if (!pw) return;
         pw.document.write(`<html dir="rtl"><meta charset="utf-8"><body style="font-family:Tahoma,Arial;padding:24px"><h3>وزارة التعليم — مدرسة خولة بنت حكيم للبنات (9-12)</h3><h4>حسابات مسؤولات احتياطي الأسر</h4><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><tr><th>الأسرة</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr>${made.map(m => `<tr><td>${esc2(m.dept)}</td><td dir="ltr">${esc2(m.un)}</td><td dir="ltr">${esc2(m.pw)}</td></tr>`).join("")}</table><script>print()<\/script></body></html>`);
@@ -2477,7 +2487,7 @@
 
     // --- حذف الجدول المستورد ---
     function clearImportedSchedule(preStaff) {
-      if (!can("import")) { showToast("ليست لديكِ صلاحية", "error"); return; }
+      if (!can("deleteStaff")) { showToast("ليست لديكِ صلاحية", "error"); return; }
       const addedAuto = state.staff.filter(s => /أُضيفت تلقائياً/.test(s.matchType || "")).length;
       const flCount = (AUTH.users || []).filter(u => u.role === "familyLead").length;
       const w = xModal(`<h3 style="font-weight:900;color:#b91c1c;font-size:16px">🗑 حذف الجدول المستورد / تصفير النظام</h3>
@@ -2522,6 +2532,22 @@
       };
     }
 
+    // --- فتح واتساب (تطبيق / ويب / تلقائي) ---
+    function openWhatsApp(phone, text) {
+      const ph = normalizePhone(phone || "");
+      const mode = NOTIFY.waMode || "auto";
+      const q = encodeURIComponent(text || "");
+      if (mode === "app") {
+        const a = document.createElement("a");
+        a.href = `whatsapp://send?${ph ? "phone=" + ph + "&" : ""}text=${q}`;
+        document.body.appendChild(a); a.click(); a.remove();
+      } else if (mode === "web") {
+        window.open(`https://web.whatsapp.com/send?${ph ? "phone=" + ph + "&" : ""}text=${q}`, "_blank", "noopener");
+      } else {
+        window.open(`https://wa.me/${ph}?text=${q}`, "_blank", "noopener");
+      }
+    }
+
     // --- واتساب للهيئة التعليمية ---
     function broadcastMessage() {
       const subs = state.substitutions.filter(x => x.substituteTeacherId).sort((a, b) => Number(a.period) - Number(b.period));
@@ -2537,16 +2563,18 @@
     function renderBroadcast() {
       const el = document.getElementById("waPreview"); if (el) el.textContent = broadcastMessage();
     }
-    function waQueue() {
+    function waQueue(mgmtOnly) {
       const msgAll = broadcastMessage();
       const groups = notifyGroups();
       const byId = new Map(groups.map(g => [g.teacher.id, g]));
-      const rows = state.staff.filter(s => normalizePhone(s.phone) || byId.has(s.id));
-      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">👩‍🏫 إرسال واتساب لكل معلمة</h3>
+      const mgmtIds = new Set((AUTH.users || []).filter(u => ["principal", "assistant", "familyLead", "reserveAll"].includes(u.role) && u.staffId).map(u => u.staffId));
+      state.staff.forEach(s => { if (/مديرة|مساعدة المديرة/.test(s.role || "")) mgmtIds.add(s.id); });
+      const rows = state.staff.filter(s => (normalizePhone(s.phone) || byId.has(s.id)) && (!mgmtOnly || mgmtIds.has(s.id)));
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">${mgmtOnly ? "🏫 إرسال واتساب للإدارة ومسؤولات الاحتياط" : "👩‍🏫 إرسال واتساب لكل معلمة"}</h3>
         <p style="font-size:12px;color:#475569;margin:4px 0 8px">المكلّفات بالاحتياط يصلهنّ تذكير شخصي، وبقية المعلمات تصلهنّ الرسالة الموحدة. يفتح كل زر محادثة واتساب جاهزة للإرسال.</p>
         <label style="font-size:12px;font-weight:700"><input type="checkbox" id="waOnlyAssigned"> المكلّفات بالاحتياط فقط</label>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><tbody id="waQBody">
-        ${rows.map(s => { const g = byId.get(s.id), ph = normalizePhone(s.phone); return `<tr data-as="${g ? 1 : 0}" style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(s.name)}</td><td style="padding:6px;color:#64748b">${g ? "مكلّفة بالاحتياط" : "إعلام عام"}</td><td style="padding:6px">${ph ? `<button type="button" data-wa-send="${s.id}" style="background:#059669;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">إرسال</button>` : '<span style="color:#b45309">لا رقم هاتف</span>'}</td></tr>`; }).join("") || '<tr><td style="padding:12px;color:#64748b">لا توجد معلمات بأرقام هواتف — أضيفيها من (تعديل) في بيانات الكادر.</td></tr>'}
+        ${rows.map(s => { const g = byId.get(s.id), ph = normalizePhone(s.phone); return `<tr data-as="${g ? 1 : 0}" style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(s.name)}</td><td style="padding:6px;color:#64748b">${g ? "مكلّفة بالاحتياط" : mgmtIds.has(s.id) ? "إدارة / مسؤولة احتياط" : "إعلام عام"}</td><td style="padding:6px">${ph ? `<button type="button" data-wa-send="${s.id}" style="background:#059669;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">إرسال</button>` : '<span style="color:#b45309">لا رقم هاتف</span>'}</td></tr>`; }).join("") || '<tr><td style="padding:12px;color:#64748b">لا توجد معلمات بأرقام هواتف — أضيفيها من (تعديل) في بيانات الكادر.</td></tr>'}
         </tbody></table>
         <div style="margin-top:12px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
       w.querySelector("#waOnlyAssigned").onchange = (e) => w.querySelectorAll("#waQBody tr").forEach(tr => { tr.style.display = e.target.checked && tr.dataset.as !== "1" ? "none" : ""; });
@@ -2554,7 +2582,7 @@
         const b = e.target.closest("[data-wa-send]"); if (!b) return;
         const s = state.staff.find(m => m.id === b.getAttribute("data-wa-send")); if (!s) return;
         const g = byId.get(s.id);
-        window.open(`https://wa.me/${normalizePhone(s.phone)}?text=${encodeURIComponent(g ? notifyMessage(g) : msgAll)}`, "_blank", "noopener");
+        openWhatsApp(s.phone, g ? notifyMessage(g) : msgAll);
         b.textContent = "✓ أُرسل"; b.style.background = "#64748b";
         audit(`واتساب إلى ${s.name}`);
       });
@@ -2594,7 +2622,8 @@
       if (act === "famAccounts") { if (can("accounts")) createFamilyAccounts(); }
       else if (act === "clearSchedule") clearImportedSchedule();
       else if (act === "clearStaff") clearImportedSchedule(true);
-      else if (act === "waGroup") window.open("https://wa.me/?text=" + encodeURIComponent(broadcastMessage()), "_blank", "noopener");
+      else if (act === "waGroup") openWhatsApp("", broadcastMessage());
+      else if (act === "waMgmt") waQueue(true);
       else if (act === "waCopy") copyText(broadcastMessage());
       else if (act === "waQueue") waQueue();
       else if (act === "timesImgDel") { try { localStorage.removeItem(K_TIMES_IMG); } catch (e) { /* */ } renderTimesEditor(); showToast("حُذفت الصورة"); }
@@ -2607,13 +2636,14 @@
     document.addEventListener("change", e => {
       const t = e.target;
       if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
+      if (t.id === "waMode") { NOTIFY.waMode = t.value; saveNotify(); return; }
       if (t.id === "timesImgInput") { importTimesImage(t.files[0]); t.value = ""; }
       else if (t.hasAttribute && t.hasAttribute("data-time-start")) { NOTIFY.times[Number(t.getAttribute("data-time-start"))] = t.value; saveNotify(); renderNotify(); }
       else if (t.hasAttribute && t.hasAttribute("data-time-end")) { NOTIFY.ends[Number(t.getAttribute("data-time-end"))] = t.value; saveNotify(); renderNotify(); }
     });
     {
       const _rn = renderNotify;
-      renderNotify = function () { _rn(); renderBroadcast(); renderTimesEditor(); };
+      renderNotify = function () { _rn(); renderBroadcast(); renderTimesEditor(); const wm = document.getElementById("waMode"); if (wm) wm.value = NOTIFY.waMode || "auto"; };
     }
 
     // ==================== تطبيق مثبّت (PWA): تثبيت + إشعارات نظام + تشغيل دائم ====================
@@ -3008,7 +3038,7 @@
         if (act === "copy") return copyText(text);
         const ph = normalizePhone(sup.techPhone);
         if (!ph) { showToast("لم يُسجَّل رقم واتساب للمسؤول الفني بعد — انسخي التقرير وأرسليه له", "error"); return; }
-        window.open(`https://wa.me/${ph}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+        openWhatsApp(ph, text);
         return;
       }
       const all = lsGet(K_TICKETS, []);
@@ -3274,7 +3304,31 @@
         state.staff = JSON.parse(JSON.stringify(INITIAL_STAFF));
       }
       state.staff.forEach(sanitizeStaffRecord);
+      applyPhoneSeed();
       reconcileAllStaffQuotas(true);
+    }
+
+    // أرقام هواتف مستخرجة من ملف بيانات الموظفين: تُطبَّق على من لا رقم لها فقط (مطابقة بالاسم الأول والأخير والأوسط)
+    function applyPhoneSeed() {
+      if (!PHONE_SEED.length) return;
+      const nzp = (t) => normalizeArabic(t);
+      const core = (t) => nzp(t).replace(/^ال/, "").replace(/(ي|ه|ا)$/, "");
+      const toks = (n) => String(n || "").split(/\s+/).filter(w => w && w !== "بنت" && w !== "بن").map(core);
+      const seed = PHONE_SEED.map(([n, ph]) => ({ t: toks(n), ph, used: false }));
+      state.staff.forEach(m => {
+        if (m.phone) return;
+        const ta = toks(m.name); if (ta.length < 2) return;
+        let best = null;
+        seed.forEach(sd => {
+          if (sd.used) return;
+          let sc = 0;
+          if (ta[0] === sd.t[0]) sc += 10;
+          if (ta[ta.length - 1] === sd.t[sd.t.length - 1] || sd.t.includes(ta[ta.length - 1])) sc += 10;
+          sc += ta.slice(1, -1).filter(x => x.length > 2 && sd.t.includes(x)).length;
+          if (sc >= 20 && (!best || sc > best.sc)) best = { sd, sc };
+        });
+        if (best) { m.phone = best.sd.ph; best.sd.used = true; }
+      });
     }
 
     function saveState() {
