@@ -98,7 +98,7 @@
         <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input id="authRemember" type="checkbox" class="accent-teal-700" /> تذكّرني على هذا الجهاز</label>
         <p id="authLoginMsg" class="text-xs font-bold text-rose-700 min-h-[1rem]"></p>
         <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-sm">دخول</button>
-        <button type="button" data-auth-go="recover" class="w-full text-xs font-bold text-teal-800 hover:underline">نسيتُ كلمة مرور المسؤول الفني (رمز الاستعادة)</button>
+        <button type="button" data-auth-go="recover" class="w-full text-xs font-bold text-teal-800 hover:underline">نسيتُ اسم المستخدم أو كلمة المرور (استعادة)</button>
       </form>
 
       <form id="authSetupForm" class="space-y-3 hidden">
@@ -113,11 +113,16 @@
       </form>
 
       <form id="authRecoverForm" class="space-y-3 hidden">
-        <h2 class="text-sm font-extrabold text-teal-900">استعادة كلمة مرور المسؤول الفني</h2>
+        <h2 class="text-sm font-extrabold text-teal-900">استعادة اسم المستخدم وكلمة المرور (المسؤول الفني)</h2>
         <input id="recCode" type="text" placeholder="رمز الاستعادة (المعروض عند الإعداد الأول)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" dir="ltr" />
         <input id="recPass" type="password" placeholder="كلمة المرور الجديدة" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <p id="authRecoverMsg" class="text-xs font-bold text-rose-700 min-h-[1rem]"></p>
         <button type="submit" class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm">تعيين كلمة مرور جديدة</button>
+        <p class="text-[11px] text-slate-600 leading-relaxed">بعد إدخال الرمز الصحيح سيُعرض لكِ <strong>اسم المستخدم</strong> للمسؤول الفني مع تعيين كلمة المرور الجديدة.</p>
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-2.5 space-y-1.5">
+          <p class="text-[11px] font-bold text-rose-800 leading-relaxed">فقدتِ رمز الاستعادة أيضاً؟ يمكنكِ إعادة ضبط الحسابات فقط (تُحذف الحسابات وتُنشأ من جديد، وتبقى بيانات المعلمات والجداول كما هي).</p>
+          <button type="button" id="authResetAccounts" class="w-full py-2 rounded-xl bg-white border border-rose-300 text-rose-800 font-extrabold text-xs hover:bg-rose-100">إعادة ضبط الحسابات وإنشاء مسؤول فني جديد</button>
+        </div>
         <button type="button" data-auth-go="login" class="w-full text-xs font-bold text-slate-600 hover:underline">رجوع</button>
       </form>
 
@@ -705,6 +710,9 @@
                   <span>مسح الحصص التجريبية السابقة واعتماد نصاب وحصص الملف المستورد فقط</span>
                 </label>
               </div>
+              <div class="pt-1 flex items-center justify-center">
+                <button type="button" data-x-act="clearSchedule" data-requires="import" class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 font-bold text-[11px]">🗑 حذف الجدول المستورد</button>
+              </div>
               <p id="pdfUploadStatusText" class="text-xs font-bold text-teal-800 pt-1">✓ الحالة الحالية: تم تحليل وإدخال ملف «أحدث جدول عام.pdf» (تاريخ 15/10/2026 — 11 صفحة aSc Timetables) بالكامل مع الأنصبة والحصص الفعلية لجميع المعلمات</p>
               <div id="pdfDiagnosticBox" class="hidden text-right p-3 rounded-xl bg-white border border-slate-300 text-[11px] space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
             </div>
@@ -837,6 +845,32 @@
         </details>
         <p class="text-[11px] text-slate-500 leading-relaxed">ملاحظة: التذكير التلقائي الصوتي يعمل على الجهاز الذي تبقى عليه الصفحة مفتوحة (مثل شاشة غرفة المعلمات). ولوصول الإشعار إلى هاتف كل معلمة استخدمي زر «واتساب» أمام اسمها، وتأكدي من إدخال رقم هاتفها في بيانات الكادر.</p>
       </div>
+      <div id="waBroadcast" class="bg-white rounded-2xl p-4 border border-emerald-200 shadow-sm space-y-3">
+        <div>
+          <h3 class="text-sm font-extrabold text-emerald-900">📣 إبلاغ الهيئة التعليمية بالاحتياط عبر واتساب</h3>
+          <p class="text-[11px] text-slate-600 font-semibold">رسالة موحّدة بكل حصص الاحتياط (الحصة والوقت والصف والمعلمة البديلة) لإرسالها لمجموعة المعلمات، أو إرسال فردي لكل معلمة من قائمة.</p>
+        </div>
+        <pre id="waPreview" class="text-[11px] leading-relaxed bg-emerald-50 border border-emerald-200 rounded-xl p-3 whitespace-pre-wrap font-sans text-slate-800 max-h-48 overflow-y-auto"></pre>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" data-x-act="waGroup" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">📲 إرسال الرسالة الموحدة (واتساب)</button>
+          <button type="button" data-x-act="waCopy" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs">📋 نسخ الرسالة</button>
+          <button type="button" data-x-act="waQueue" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs">👩‍🏫 إرسال لكل معلمة على حدة</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900">🕘 جدول توقيت الحصص (استيراد كصورة)</h3>
+            <p class="text-[11px] text-slate-600 font-semibold">ارفعي صورة جدول توقيت الحصص لتبقى أمامكِ، ثم أدخلي بداية ونهاية كل حصة؛ تُستعمل الأوقات في رسائل واتساب والتذكير.</p>
+          </div>
+          <div class="flex gap-2">
+            <label class="px-3 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs cursor-pointer">📷 رفع صورة التوقيت<input id="timesImgInput" type="file" accept="image/*" class="hidden" /></label>
+            <button type="button" data-x-act="timesImgDel" class="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-bold text-xs">حذف الصورة</button>
+          </div>
+        </div>
+        <img id="timesImgPrev" alt="جدول توقيت الحصص" class="hidden max-h-72 rounded-xl border border-slate-200 cursor-zoom-in" />
+        <div id="timesEditor" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+      </div>
       <div id="notifyList" class="space-y-3"></div>
     </section>
 
@@ -847,7 +881,10 @@
             <h2 class="text-base font-extrabold text-slate-900">إدارة حسابات النظام (المسؤول الفني)</h2>
             <p class="text-xs text-slate-500 font-semibold">المسؤول الفني • مديرة المدرسة • مساعدة المديرة • مسؤولة احتياطي الأسرة</p>
           </div>
-          <button type="button" data-acc-act="new" class="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs">+ إضافة حساب</button>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" data-x-act="famAccounts" class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs">👥 إنشاء حسابات مسؤولات الأسر دفعة واحدة</button>
+            <button type="button" data-acc-act="new" class="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs">+ إضافة حساب</button>
+          </div>
         </div>
         <div id="accountsTable" class="overflow-x-auto custom-scrollbar"></div>
         <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600 leading-relaxed">
@@ -2208,7 +2245,7 @@
         if (!map.has(s.substituteTeacherId)) map.set(s.substituteTeacherId, []);
         map.get(s.substituteTeacherId).push({
           id: s.id, period: Number(s.period), cls: s.className || "", absent: absent ? absent.name : "—",
-          time: NOTIFY.times[Number(s.period) - 1] || ""
+          time: (typeof periodTimeLabel === "function" ? periodTimeLabel(Number(s.period)) : (NOTIFY.times[Number(s.period) - 1] || ""))
         });
       });
       return Array.from(map, ([tid, items]) => ({ teacher: state.staff.find(m => m.id === tid), items: items.sort((a, b) => a.period - b.period) }))
@@ -2348,6 +2385,183 @@
         window.open(`https://wa.me/${ph}?text=${encodeURIComponent(notifyMessage(g))}`, "_blank", "noopener");
         audit(`إرسال إشعار واتساب للمعلمة ${g.teacher.name}`);
       }
+    }
+
+
+    // ==================== ميزات إدارية: استعادة، حسابات الأسر، حذف الجدول، واتساب للجميع، صورة التوقيت ====================
+    NOTIFY.ends = Array.isArray(NOTIFY.ends) ? NOTIFY.ends : [];
+    function periodTimeLabel(p) {
+      const a = NOTIFY.times[p - 1], b = NOTIFY.ends[p - 1];
+      return a ? (b ? `${a}–${b}` : a) : "";
+    }
+    const K_TIMES_IMG = "khawla_times_img_v1";
+    function esc2(t) { return String(t == null ? "" : t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+    function xModal(html) {
+      const w = document.createElement("div");
+      w.setAttribute("dir", "rtl");
+      w.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:12px;font-family:inherit";
+      w.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.4)">${html}</div>`;
+      document.body.appendChild(w);
+      w.addEventListener("click", e => { if (e.target === w || e.target.closest("[data-x-close]")) w.remove(); });
+      return w;
+    }
+
+    // --- إعادة ضبط الحسابات عند فقدان رمز الاستعادة ---
+    function resetAccountsFlow() {
+      const ans = prompt("سيتم حذف كل حسابات الدخول فقط (تبقى بيانات المعلمات والجداول).\nللتأكيد اكتبي كلمة: تأكيد");
+      if (ans === null || ans.trim() !== "تأكيد") { showToast("لم تتم إعادة الضبط"); return; }
+      try { localStorage.removeItem(K_ACC); localStorage.removeItem("khawla_remember"); sessionStorage.removeItem("khawla_session"); } catch (e) { /* */ }
+      const sup = lsGet(K_SUPPORT, {}); delete sup.recSalt; delete sup.recHash; lsSet(K_SUPPORT, sup);
+      location.reload();
+    }
+
+    // --- حسابات مسؤولات احتياطي الأسر دفعة واحدة ---
+    function randPass() {
+      const cs = "abcdefghjkmnpqrstuvwxyz23456789";
+      const a = new Uint32Array(8); (window.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : a.forEach((_, i) => { a[i] = Math.floor(Math.random() * 4e9); });
+      return Array.from(a, v => cs[v % cs.length]).join("");
+    }
+    async function createFamilyAccounts() {
+      const deptsWithout = DEPARTMENTS.filter(d => !AUTH.users.some(u => u.role === "familyLead" && u.deptId === d.id));
+      if (!deptsWithout.length) { showToast("لكل أسرة حساب مسؤولة بالفعل"); return; }
+      const made = [];
+      for (const d of deptsWithout) {
+        let un = ("fam-" + d.id).toLowerCase().replace(/[^a-z0-9_.-]/g, "");
+        if (AUTH.users.some(u => u.username === un)) un += "-" + rid().slice(0, 3);
+        const pw = randPass(), salt = rid();
+        AUTH.users.push({ id: "u-" + rid(), name: "مسؤولة احتياطي " + d.shortName, username: un, role: "familyLead", deptId: d.id, salt, hash: await hashPass(pw, salt), active: true, created: new Date().toISOString(), last: "" });
+        made.push({ dept: d.shortName, un, pw });
+      }
+      saveUsers(); audit(`إنشاء ${made.length} حساب لمسؤولات الأسر`); renderAccounts();
+      const text = "حسابات مسؤولات احتياطي الأسر — مدرسة خولة بنت حكيم للبنات (9-12)\n\n" + made.map(m => `${m.dept}\nاسم المستخدم: ${m.un}\nكلمة المرور: ${m.pw}`).join("\n\n") + "\n\nيمكن تغيير كلمة المرور بعد الدخول.";
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">✓ أُنشئت ${made.length} حسابات — احفظي كلمات المرور الآن</h3>
+        <p style="font-size:12px;color:#b45309;font-weight:700;margin:6px 0">تظهر كلمات المرور هنا مرة واحدة فقط. وزّعيها على المسؤولات (واتساب أو طباعة)، ثم يمكنكِ تعديل الاسم من (تعديل) في تبويب الحسابات.</p>
+        <table style="width:100%;border-collapse:collapse;font-size:12px" dir="rtl"><thead><tr style="background:#f1f5f9"><th style="padding:6px;text-align:right">الأسرة</th><th style="padding:6px">اسم المستخدم</th><th style="padding:6px">كلمة المرور</th></tr></thead><tbody>
+        ${made.map(m => `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(m.dept)}</td><td style="padding:6px;font-family:monospace" dir="ltr">${esc2(m.un)}</td><td style="padding:6px;font-family:monospace;font-weight:800" dir="ltr">${esc2(m.pw)}</td></tr>`).join("")}</tbody></table>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button type="button" id="famCopy" style="background:#0f766e;color:#fff;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">📋 نسخ الكل</button>
+          <button type="button" id="famWa" style="background:#059669;color:#fff;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">📲 واتساب</button>
+          <button type="button" id="famPrint" style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">🖨 طباعة</button>
+          <button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button>
+        </div>`);
+      w.querySelector("#famCopy").onclick = () => copyText(text);
+      w.querySelector("#famWa").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+      w.querySelector("#famPrint").onclick = () => {
+        const pw = window.open("", "_blank"); if (!pw) return;
+        pw.document.write(`<html dir="rtl"><meta charset="utf-8"><body style="font-family:Tahoma,Arial;padding:24px"><h3>وزارة التعليم — مدرسة خولة بنت حكيم للبنات (9-12)</h3><h4>حسابات مسؤولات احتياطي الأسر</h4><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><tr><th>الأسرة</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr>${made.map(m => `<tr><td>${esc2(m.dept)}</td><td dir="ltr">${esc2(m.un)}</td><td dir="ltr">${esc2(m.pw)}</td></tr>`).join("")}</table><p style="margin-top:24px">إعداد: معلمة تقنية المعلومات ابتسام الرواس</p><script>print()<\/script></body></html>`);
+        pw.document.close();
+      };
+    }
+
+    // --- حذف الجدول المستورد ---
+    function clearImportedSchedule() {
+      if (!can("import")) { showToast("ليست لديكِ صلاحية", "error"); return; }
+      const addedAuto = state.staff.filter(s => /أُضيفت تلقائياً/.test(s.matchType || "")).length;
+      if (!confirm(`سيتم حذف جداول كل المعلمات المستوردة (الحصص والنصاب)، وإلغاء الغيابات وحصص الاحتياط المسجلة.${addedAuto ? `\nكما ستُحذف ${addedAuto} معلمة أُضيفت تلقائياً من الجدول.` : ""}\nتبقى بيانات المعلمات الأخرى (الأسماء والأقسام والهواتف).\n\nهل تريدين المتابعة؟`)) return;
+      state.staff = state.staff.filter(s => !/أُضيفت تلقائياً/.test(s.matchType || ""));
+      state.staff.forEach(s => { s.schedule = emptySchedule(); s.quota = 0; s.matchedFromPdf = false; s.matchType = ""; });
+      state.absences = []; state.substitutions = [];
+      state.lastParsed = null;
+      try { localStorage.removeItem("khawla_last_pdf"); } catch (e) { /* */ }
+      invalidateCaches(); saveState(); renderAll();
+      const t = document.getElementById("pdfMatchTimestamp"); if (t) t.textContent = "لا يوجد جدول مستورد";
+      const st = document.getElementById("pdfUploadStatusText"); if (st) st.textContent = "تم حذف الجدول المستورد — يمكنكِ استيراد جدول جديد.";
+      const box = document.getElementById("pdfDiagnosticBox"); if (box) box.classList.add("hidden");
+      audit("حذف الجدول المستورد");
+      showToast("تم حذف الجدول المستورد");
+    }
+
+    // --- واتساب للهيئة التعليمية ---
+    function broadcastMessage() {
+      const subs = state.substitutions.filter(x => x.substituteTeacherId).sort((a, b) => Number(a.period) - Number(b.period));
+      const head = `السلام عليكم ورحمة الله 🌸\nإعلان حصص الاحتياط — يوم ${DAY_NAMES[state.selectedDay]} ${state.selectedDate}`;
+      if (!subs.length) return head + "\nلا توجد حصص احتياط مكلَّفة حالياً.\nمدرسة خولة بنت حكيم للبنات (9-12)";
+      const lines = subs.map(x => {
+        const sub = state.staff.find(m => m.id === x.substituteTeacherId), ab = state.staff.find(m => m.id === x.absentTeacherId);
+        const tm = periodTimeLabel(Number(x.period));
+        return `• الحصة ${x.period}${tm ? ` (${tm})` : ""} — الصف ${x.className || "—"} — ${sub ? sub.name : "—"} بدلاً عن ${ab ? ab.name : "—"}`;
+      });
+      return `${head}\n${lines.join("\n")}\nيُرجى الالتزام بحصص الاحتياط في وقتها. شكراً لتعاونكنّ.\nمدرسة خولة بنت حكيم للبنات (9-12)`;
+    }
+    function renderBroadcast() {
+      const el = document.getElementById("waPreview"); if (el) el.textContent = broadcastMessage();
+    }
+    function waQueue() {
+      const msgAll = broadcastMessage();
+      const groups = notifyGroups();
+      const byId = new Map(groups.map(g => [g.teacher.id, g]));
+      const rows = state.staff.filter(s => normalizePhone(s.phone) || byId.has(s.id));
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">👩‍🏫 إرسال واتساب لكل معلمة</h3>
+        <p style="font-size:12px;color:#475569;margin:4px 0 8px">المكلّفات بالاحتياط يصلهنّ تذكير شخصي، وبقية المعلمات تصلهنّ الرسالة الموحدة. يفتح كل زر محادثة واتساب جاهزة للإرسال.</p>
+        <label style="font-size:12px;font-weight:700"><input type="checkbox" id="waOnlyAssigned"> المكلّفات بالاحتياط فقط</label>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><tbody id="waQBody">
+        ${rows.map(s => { const g = byId.get(s.id), ph = normalizePhone(s.phone); return `<tr data-as="${g ? 1 : 0}" style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(s.name)}</td><td style="padding:6px;color:#64748b">${g ? "مكلّفة بالاحتياط" : "إعلام عام"}</td><td style="padding:6px">${ph ? `<button type="button" data-wa-send="${s.id}" style="background:#059669;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">إرسال</button>` : '<span style="color:#b45309">لا رقم هاتف</span>'}</td></tr>`; }).join("") || '<tr><td style="padding:12px;color:#64748b">لا توجد معلمات بأرقام هواتف — أضيفيها من (تعديل) في بيانات الكادر.</td></tr>'}
+        </tbody></table>
+        <div style="margin-top:12px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+      w.querySelector("#waOnlyAssigned").onchange = (e) => w.querySelectorAll("#waQBody tr").forEach(tr => { tr.style.display = e.target.checked && tr.dataset.as !== "1" ? "none" : ""; });
+      w.addEventListener("click", e => {
+        const b = e.target.closest("[data-wa-send]"); if (!b) return;
+        const s = state.staff.find(m => m.id === b.getAttribute("data-wa-send")); if (!s) return;
+        const g = byId.get(s.id);
+        window.open(`https://wa.me/${normalizePhone(s.phone)}?text=${encodeURIComponent(g ? notifyMessage(g) : msgAll)}`, "_blank", "noopener");
+        b.textContent = "✓ أُرسل"; b.style.background = "#64748b";
+        audit(`واتساب إلى ${s.name}`);
+      });
+    }
+
+    // --- صورة جدول التوقيت + أوقات البداية والنهاية ---
+    function renderTimesEditor() {
+      const box = document.getElementById("timesEditor"); if (!box) return;
+      box.innerHTML = NOTIFY.times.map((t, i) => `<div class="rounded-xl border border-slate-200 p-2 text-[11px] font-bold text-slate-600 space-y-1">
+        <div>الحصة ${i + 1}</div>
+        <label class="block">من<input type="time" data-time-start="${i}" value="${t || ""}" class="w-full px-1.5 py-1 rounded-lg border border-slate-300 text-xs font-bold" /></label>
+        <label class="block">إلى<input type="time" data-time-end="${i}" value="${NOTIFY.ends[i] || ""}" class="w-full px-1.5 py-1 rounded-lg border border-slate-300 text-xs font-bold" /></label></div>`).join("");
+      const img = document.getElementById("timesImgPrev");
+      let d = ""; try { d = localStorage.getItem(K_TIMES_IMG) || ""; } catch (e) { /* */ }
+      if (img) { if (d) { img.src = d; img.classList.remove("hidden"); } else { img.classList.add("hidden"); img.removeAttribute("src"); } }
+    }
+    function importTimesImage(file) {
+      if (!file) return;
+      const fr = new FileReader();
+      fr.onload = () => {
+        const im = new Image();
+        im.onload = () => {
+          const k = Math.min(1, 1200 / Math.max(im.width, im.height));
+          const c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+          c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+          const data = c.toDataURL("image/jpeg", 0.85);
+          try { localStorage.setItem(K_TIMES_IMG, data); showToast("تم حفظ صورة التوقيت — أدخلي الأوقات في الخانات المجاورة"); }
+          catch (e) { showToast("تعذّر حفظ الصورة (مساحة التخزين ممتلئة)", "error"); }
+          renderTimesEditor();
+        };
+        im.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    }
+
+    function xAction(act) {
+      if (act === "famAccounts") { if (can("accounts")) createFamilyAccounts(); }
+      else if (act === "clearSchedule") clearImportedSchedule();
+      else if (act === "waGroup") window.open("https://wa.me/?text=" + encodeURIComponent(broadcastMessage()), "_blank", "noopener");
+      else if (act === "waCopy") copyText(broadcastMessage());
+      else if (act === "waQueue") waQueue();
+      else if (act === "timesImgDel") { try { localStorage.removeItem(K_TIMES_IMG); } catch (e) { /* */ } renderTimesEditor(); showToast("حُذفت الصورة"); }
+    }
+    document.addEventListener("click", e => {
+      const b = e.target.closest("[data-x-act]"); if (b) { xAction(b.getAttribute("data-x-act")); return; }
+      if (e.target.id === "authResetAccounts") resetAccountsFlow();
+      if (e.target.id === "timesImgPrev" && e.target.src) { const w = window.open(); if (w) { w.document.write(`<img src="${e.target.src}" style="max-width:100%">`); } }
+    });
+    document.addEventListener("change", e => {
+      const t = e.target;
+      if (t.id === "timesImgInput") { importTimesImage(t.files[0]); t.value = ""; }
+      else if (t.hasAttribute && t.hasAttribute("data-time-start")) { NOTIFY.times[Number(t.getAttribute("data-time-start"))] = t.value; saveNotify(); renderNotify(); }
+      else if (t.hasAttribute && t.hasAttribute("data-time-end")) { NOTIFY.ends[Number(t.getAttribute("data-time-end"))] = t.value; saveNotify(); renderNotify(); }
+    });
+    {
+      const _rn = renderNotify;
+      renderNotify = function () { _rn(); renderBroadcast(); renderTimesEditor(); };
     }
 
     // ==================== تطبيق مثبّت (PWA): تثبيت + إشعارات نظام + تشغيل دائم ====================
@@ -4508,7 +4722,7 @@
     })();
 
     // ==================== تطبيق نتائج قراءة PDF على الكادر ====================
-    function applyAscRowsToState(parsed, label) {
+    function applyAscRowsToState(parsed, label, skipEmpty) {
       const clearOldEl = document.getElementById("pdfClearOldScheduleCb");
       const clearOld = clearOldEl ? clearOldEl.checked : true;
       const rows = parsed.rows;
@@ -4516,9 +4730,11 @@
       const touched = new Set();
       let cells = 0;
 
+      const removedEmpty = [];
       mr.matches.forEach((m, ri) => {
         const row = rows[ri];
         const member = m.staff;
+        if (skipEmpty && !row.cells) { removedEmpty.push(member.name); state.staff = state.staff.filter(x => x.id !== member.id); mr.matches.delete(ri); return; }
         if (clearOld) member.schedule = emptySchedule();
         SCHOOL_DAYS.forEach(d => {
           row.sched[d].forEach((c, i) => { if (c) member.schedule[d][i] = c; });
@@ -4533,6 +4749,7 @@
       const added = [];
       const newIdByRow = {};
       mr.unmatched.forEach(({ r, ri }) => {
+        if (skipEmpty && !r.cells) { removedEmpty.push(AscPdf.splitName(r.nameFrags, mr.reversedDominant).name + " (لم تُضف)"); return; }
         const sp = AscPdf.splitName(r.nameFrags, mr.reversedDominant);
         const name = clean(sp.name) || `معلمة (ص${r.page}/س${r.row})`;
         const dept = sp.dept || "skills";
@@ -4594,6 +4811,7 @@
         rows: rows.length,
         matched: mr.matches.size,
         added: added.map(a => a.name),
+        removedEmpty,
         missing: missing.map(m => m.name),
         cells,
         warnings: parsed.warnings,
@@ -4616,6 +4834,7 @@
           <div class="p-1.5 rounded-lg bg-slate-50 border border-slate-200">الحصص المستخرجة: <strong>${info.cells}</strong></div>
         </div>
         ${info.added.length ? `<div class="text-sky-800 font-bold">➕ أُضيفت ${info.added.length} معلمة جديدة غير موجودة في الكادر:</div>${li(info.added)}` : ""}
+        ${info.removedEmpty && info.removedEmpty.length ? `<div class="text-rose-800 font-bold">🗑 استُبعدت ${info.removedEmpty.length} معلمة بلا حصص:</div>${li(info.removedEmpty)}` : ""}
         ${info.missing.length ? `<div class="text-slate-700 font-bold">ℹ️ ${info.missing.length} من الكادر غير مدرجة في الملف (أخصائيات/إدارة أو بلا حصص):</div>${li(info.missing)}` : ""}
         ${info.warnings.map(w => `<div class="text-amber-800">⚠ ${w}</div>`).join("")}
         <div class="text-slate-500">${info.clearOld ? "تم استبدال جداول المعلمات المطابقات بالكامل بما في الملف." : "تم دمج حصص الملف مع الجداول الحالية دون مسح."}</div>
@@ -4705,6 +4924,7 @@
               ${a.parsed.warnings && a.parsed.warnings.length ? `<div style="margin-top:6px;font-size:12px;color:#b45309">${a.parsed.warnings.map(w => "⚠ " + esc(w)).join("<br>")}</div>` : ""}
             </div>
             <div style="padding:8px 18px;font-size:12px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #e2e8f0">
+              <label style="cursor:pointer;color:#b91c1c;font-weight:800"><input type="checkbox" id="ipvSkipEmpty" checked> حذف المعلمات بلا حصص (${a.list.filter(x => !x.total).length})</label>
               <label style="cursor:pointer"><input type="checkbox" id="ipvOnlyFlag" ${flagged ? "" : "disabled"}> إظهار الصفوف التي بها ملاحظات فقط</label>
               <span style="color:#64748b">اسم PDF ← المعلمة في النظام | الحصص | التوزيع على الأيام | الملاحظات</span>
             </div>
@@ -4717,7 +4937,7 @@
             </div>
           </div>`;
         document.body.appendChild(wrap);
-        const close = (ok) => { wrap.remove(); resolve(ok); };
+        const close = (ok) => { const se = wrap.querySelector("#ipvSkipEmpty").checked; wrap.remove(); resolve(ok ? { skipEmpty: se } : false); };
         wrap.querySelector("#ipvOk").addEventListener("click", () => close(true));
         wrap.querySelector("#ipvNo").addEventListener("click", () => close(false));
         const cb = wrap.querySelector("#ipvOnlyFlag");
@@ -4770,7 +4990,7 @@
           showToast("أُلغي الاستيراد ولم تتغير البيانات");
           return;
         }
-        const info = applyAscRowsToState(parsed, file.name);
+        const info = applyAscRowsToState(parsed, file.name, okImport.skipEmpty);
         statusEl.textContent = `✓ تم استيراد «${file.name}»: ${info.matched} معلمة مطابقة${info.added.length ? ` + ${info.added.length} مضافة` : ""} — ${info.cells} حصة`;
         document.getElementById("pdfMatchTimestamp").textContent = `آخر استيراد PDF: ${file.name}`;
         showPdfReport(info);
