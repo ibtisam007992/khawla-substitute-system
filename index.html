@@ -711,7 +711,7 @@
                 </label>
               </div>
               <div class="pt-1 flex items-center justify-center">
-                <button type="button" data-x-act="clearSchedule" data-requires="import" class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 font-bold text-[11px]">🗑 حذف الجدول المستورد</button>
+                <button type="button" data-x-act="clearSchedule" data-requires="import" class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 font-bold text-[11px]">🗑 حذف الجدول / تصفير الكادر والأسر</button>
               </div>
               <p id="pdfUploadStatusText" class="text-xs font-bold text-teal-800 pt-1">✓ الحالة الحالية: تم تحليل وإدخال ملف «أحدث جدول عام.pdf» (تاريخ 15/10/2026 — 11 صفحة aSc Timetables) بالكامل مع الأنصبة والحصص الفعلية لجميع المعلمات</p>
               <div id="pdfDiagnosticBox" class="hidden text-right p-3 rounded-xl bg-white border border-slate-300 text-[11px] space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
@@ -2458,18 +2458,46 @@
     function clearImportedSchedule() {
       if (!can("import")) { showToast("ليست لديكِ صلاحية", "error"); return; }
       const addedAuto = state.staff.filter(s => /أُضيفت تلقائياً/.test(s.matchType || "")).length;
-      if (!confirm(`سيتم حذف جداول كل المعلمات المستوردة (الحصص والنصاب)، وإلغاء الغيابات وحصص الاحتياط المسجلة.${addedAuto ? `\nكما ستُحذف ${addedAuto} معلمة أُضيفت تلقائياً من الجدول.` : ""}\nتبقى بيانات المعلمات الأخرى (الأسماء والأقسام والهواتف).\n\nهل تريدين المتابعة؟`)) return;
-      state.staff = state.staff.filter(s => !/أُضيفت تلقائياً/.test(s.matchType || ""));
-      state.staff.forEach(s => { s.schedule = emptySchedule(); s.quota = 0; s.matchedFromPdf = false; s.matchType = ""; });
-      state.absences = []; state.substitutions = [];
-      state.lastParsed = null;
-      try { localStorage.removeItem("khawla_last_pdf"); } catch (e) { /* */ }
-      invalidateCaches(); saveState(); renderAll();
-      const t = document.getElementById("pdfMatchTimestamp"); if (t) t.textContent = "لا يوجد جدول مستورد";
-      const st = document.getElementById("pdfUploadStatusText"); if (st) st.textContent = "تم حذف الجدول المستورد — يمكنكِ استيراد جدول جديد.";
-      const box = document.getElementById("pdfDiagnosticBox"); if (box) box.classList.add("hidden");
-      audit("حذف الجدول المستورد");
-      showToast("تم حذف الجدول المستورد");
+      const flCount = (AUTH.users || []).filter(u => u.role === "familyLead").length;
+      const w = xModal(`<h3 style="font-weight:900;color:#b91c1c;font-size:16px">🗑 حذف الجدول المستورد / تصفير النظام</h3>
+        <p style="font-size:12px;color:#475569;margin:6px 0">اختاري ما تريدين حذفه. لا يمكن التراجع، ويُنصح بأخذ نسخة احتياطية أولًا من تبويب الدعم.</p>
+        <label style="display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid #e2e8f0;border-radius:12px;margin:6px 0;font-size:13px"><input type="checkbox" checked disabled> <span><b>حذف جداول الحصص والنصاب</b> لكل المعلمات، وإلغاء الغيابات وحصص الاحتياط المسجلة${addedAuto ? ` (وحذف ${addedAuto} معلمة أُضيفت تلقائيًا)` : ""}.</span></label>
+        <label style="display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;margin:6px 0;font-size:13px"><input type="checkbox" id="clrStaff"> <span><b>تصفير الكادر:</b> حذف كل المعلمات والأخصائيات (${state.staff.length}) بأسمائهن وهواتفهن وأقسامهن.</span></label>
+        <label style="display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;margin:6px 0;font-size:13px"><input type="checkbox" id="clrFam"> <span><b>تصفير الأسر التعليمية:</b> إفراغ كل الأسر من معلماتها، وحذف سجل الاحتياط التاريخي لكل الأيام، وإعادة عوامل التصفية${flCount ? `، وحذف حسابات مسؤولات الأسر (${flCount})` : ""}.</span></label>
+        <p style="font-size:11px;color:#b45309;margin:6px 0">ملاحظة: تصفير الأسر يستلزم أن يصبح الكادر فارغًا لأن الأسرة تتكوّن من معلماتها، لذلك يُفعَّل تصفير الكادر تلقائيًا.</p>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button type="button" id="clrOk" style="background:#b91c1c;color:#fff;font-weight:800;border-radius:12px;padding:9px 18px;border:0;cursor:pointer">تنفيذ الحذف</button>
+          <button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:9px 18px;border:0;cursor:pointer">إلغاء</button>
+        </div>`);
+      const cs = w.querySelector("#clrStaff"), cf = w.querySelector("#clrFam");
+      cf.onchange = () => { if (cf.checked) cs.checked = true; };
+      cs.onchange = () => { if (!cs.checked) cf.checked = false; };
+      w.querySelector("#clrOk").onclick = () => {
+        const wipeStaff = cs.checked, wipeFam = cf.checked;
+        w.remove();
+        if (wipeStaff) state.staff = [];
+        else {
+          state.staff = state.staff.filter(s => !/أُضيفت تلقائياً/.test(s.matchType || ""));
+          state.staff.forEach(s => { s.schedule = emptySchedule(); s.quota = 0; s.matchedFromPdf = false; s.matchType = ""; });
+        }
+        state.absences = []; state.substitutions = [];
+        if (wipeStaff) state.byDate = {};
+        if (wipeFam) {
+          state.selectedDeptFilter = "all"; state.selectedSubSkillFilter = "all"; state.pdfMatchFamilyFilter = "all";
+          state.masterDept = "all"; state.subTableFamilyFilter = "all"; state.printTargetFamily = "all"; state.freePeriodNum = "all";
+          state.multiSelectedTeacherIds = [];
+          const before = AUTH.users.length;
+          AUTH.users = AUTH.users.filter(u => u.role !== "familyLead"); if (AUTH.users.length !== before) saveUsers();
+        }
+        state.lastParsed = null;
+        try { localStorage.removeItem("khawla_last_pdf"); } catch (e) { /* */ }
+        invalidateCaches(); saveState(); renderAll(); try { renderAccounts(); } catch (e) { /* */ }
+        const t = document.getElementById("pdfMatchTimestamp"); if (t) t.textContent = "لا يوجد جدول مستورد";
+        const st = document.getElementById("pdfUploadStatusText"); if (st) st.textContent = wipeStaff ? "تم تصفير الكادر والجدول — ابدئي باستيراد جدول جديد." : "تم حذف الجدول المستورد — يمكنكِ استيراد جدول جديد.";
+        const box = document.getElementById("pdfDiagnosticBox"); if (box) box.classList.add("hidden");
+        audit(wipeFam ? "تصفير الجدول والكادر والأسر" : wipeStaff ? "تصفير الجدول والكادر" : "حذف الجدول المستورد");
+        showToast(wipeStaff ? "تم التصفير بنجاح" : "تم حذف الجدول المستورد");
+      };
     }
 
     // --- واتساب للهيئة التعليمية ---
