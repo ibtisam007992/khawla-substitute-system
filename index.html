@@ -4165,25 +4165,31 @@
         return { grade: g, voc, sec: digits[digits.length - 1] };
       }
 
-      function cellToText(frags) {
+      function cellParse(frags) {
         // الأجزاء مرتبة من الأعلى للأسفل؛ كل وحدة تنتهي بالجزء الذي فيه رقم الشعبة
         const units = [];
+        const issues = [];
         let cur = [];
         frags.forEach(f => {
           cur.push(f);
           if (/[0-9٠-٩۰-۹]/.test(f)) {
             const u = unitFromFragments(cur);
+            if (!u) issues.push("وحدة بلا صف واضح: " + cur.join(" "));
             cur = [];
             if (u) units.push(u);
           }
         });
-        if (!units.length) return "";
-        const sameKind = units.every(u => u.grade === units[0].grade && u.voc === units[0].voc);
-        if (units.length > 1 && sameKind) {
-          return `${units[0].grade}/${units[0].voc ? "مهني" : ""}${units.map(u => u.sec).join("+")}`;
+        if (cur.length) issues.push("نص بلا رقم شعبة: " + cur.join(" "));
+        let text = "";
+        if (units.length) {
+          const sameKind = units.every(u => u.grade === units[0].grade && u.voc === units[0].voc);
+          text = (units.length > 1 && sameKind)
+            ? `${units[0].grade}/${units[0].voc ? "مهني" : ""}${units.map(u => u.sec).join("+")}`
+            : units.map(u => `${u.grade}/${u.voc ? "مهني" : ""}${u.sec}`).join(" + ");
         }
-        return units.map(u => `${u.grade}/${u.voc ? "مهني" : ""}${u.sec}`).join(" + ");
+        return { text, issues };
       }
+      function cellToText(frags) { return cellParse(frags).text; }
 
       // استخراج عناصر الصفحة وخطوط الجدول من pdf.js
       async function extractPage(pdfPage) {
@@ -4303,6 +4309,32 @@
         return { bounds, fromLines: false };
       }
 
+      // خلايا مدمجة (حصة مزدوجة): عند غياب الخط الرأسي الفاصل بين عمودين في هذا الصف يُعدّان خلية واحدة
+      function rowColumnGroups(pg, geo, top, bot, useLines) {
+        const n = geo.cols.length;
+        const h = Math.max(1, bot - top);
+        const sep = new Array(n - 1).fill(true);
+        if (useLines && pg.vs && pg.vs.length) {
+          for (let k = 0; k < n - 1; k++) {
+            if (geo.cols[k].day !== geo.cols[k + 1].day) continue; // حدود الأيام ثابتة
+            const bx = (geo.cols[k].cx + geo.cols[k + 1].cx) / 2;
+            let cover = 0;
+            pg.vs.forEach(v => {
+              if (Math.abs(v.x - bx) <= geo.pitch * 0.28) {
+                cover += Math.max(0, Math.min(v.y1, bot) - Math.max(v.y0, top));
+              }
+            });
+            sep[k] = cover >= h * 0.5;
+          }
+        }
+        const groups = [];
+        let start = 0;
+        for (let k = 0; k < n; k++) {
+          if (k === n - 1 || sep[k]) { groups.push({ from: start, to: k }); start = k + 1; }
+        }
+        return groups;
+      }
+
       // قراءة كل الصفحات → صفوف المعلمات مع جداولهن
       function parsePages(pages) {
         const rows = [];
@@ -4321,30 +4353,44 @@
             });
             const nameItems = [];
             const cellMap = new Map();
+            const droppedItems = [];
+            const rowIssues = [];
+            const groups = rowColumnGroups(pg, geo, top, bot, rb.fromLines);
+            const mergedCells = groups.filter(g => g.to > g.from).map(g => ({ day: geo.cols[g.from].day, from: geo.cols[g.to].period, to: geo.cols[g.from].period }));
             rowItems.forEach(it => {
               const cx = it.x + it.w / 2;
               if (cx >= geo.right) { nameItems.push(it); return; }
               if (cx < geo.left) return;
-              let bestK = -1, bestD = Infinity;
-              geo.cols.forEach((c, k) => { const d = Math.abs(c.cx - cx); if (d < bestD) { bestD = d; bestK = k; } });
-              if (bestD > geo.pitch * 0.75) return;
-              if (!cellMap.has(bestK)) cellMap.set(bestK, []);
-              cellMap.get(bestK).push(it);
+              let bestG = -1, bestD = Infinity;
+              groups.forEach((g, gi) => {
+                const xr = geo.cols[g.from].cx + geo.pitch / 2, xl = geo.cols[g.to].cx - geo.pitch / 2;
+                const d = cx > xr ? cx - xr : cx < xl ? xl - cx : 0;
+                if (d < bestD) { bestD = d; bestG = gi; }
+              });
+              if (bestG < 0 || bestD > geo.pitch * 0.3) { droppedItems.push(it.str); return; }
+              if (!cellMap.has(bestG)) cellMap.set(bestG, []);
+              cellMap.get(bestG).push(it);
             });
             if (!nameItems.length && !cellMap.size) return;
             nameItems.sort((a, b) => Math.round(a.y / 4) - Math.round(b.y / 4) || (b.x - a.x));
             const sched = { sun: Array(8).fill(""), mon: Array(8).fill(""), tue: Array(8).fill(""), wed: Array(8).fill(""), thu: Array(8).fill("") };
             let cells = 0;
-            cellMap.forEach((its, k) => {
+            cellMap.forEach((its, gi) => {
               its.sort((a, b) => Math.round(a.y / 3) - Math.round(b.y / 3) || (b.x - a.x));
-              const txt = cellToText(its.map(i => i.str));
-              if (txt) {
-                const col = geo.cols[k];
-                sched[col.day][col.period - 1] = txt;
-                cells++;
+              const cp = cellParse(its.map(i => i.str));
+              const g = groups[gi];
+              const col0 = geo.cols[g.from];
+              cp.issues.forEach(m => rowIssues.push({ day: col0.day, period: col0.period, msg: m }));
+              if (cp.text) {
+                for (let k = g.from; k <= g.to; k++) {
+                  const col = geo.cols[k];
+                  sched[col.day][col.period - 1] = cp.text;
+                  cells++;
+                }
               }
             });
-            rows.push({ page: pIdx + 1, row: rIdx + 1, nameFrags: nameItems.map(i => i.str), sched, cells });
+            if (droppedItems.length) rowIssues.push({ day: "", period: 0, msg: "نصوص خارج حدود الأعمدة: " + droppedItems.join(" ") });
+            rows.push({ page: pIdx + 1, row: rIdx + 1, nameFrags: nameItems.map(i => i.str), sched, cells, issues: rowIssues, merged: mergedCells });
           });
         });
         return { rows, warnings, pagesWithGrid, totalPages: pages.length };
@@ -4421,7 +4467,44 @@
         return (reversed ? ws.map(revStr) : ws).join(" ");
       }
 
-      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, cellToText, findColumns };
+      // فصل اسم المعلمة عن كلمة المادة الملتصقة به، وإصلاح الحروف المبتورة (الحمدان|ي → الحمداني)
+      const SUBJECT_RULES = [
+        ["english", ["لغه انجليزيه تخصصيه", "انجليزيه", "انجليزي"]],
+        ["islamic", ["تربيه اسلاميه", "اسلاميه", "اسلامي"]],
+        ["arabic", ["لغه عربيه", "عربيه", "عربي"]],
+        ["math", ["رياضيات"]],
+        ["biology", ["احياء"]],
+        ["chemistry", ["كيمياء"]],
+        ["physics", ["فيزياء"]],
+        ["tourism", ["سياحه"]],
+        ["social", ["اجتماعيات", "دراسات اجتماعيه"]]
+      ];
+      function flexRe(word) {
+        const cls = { "ا": "[اأإآٱ]", "ه": "[هة]", "ي": "[يىئ]", "و": "[وؤ]" };
+        return word.split("").map(ch => ch === " " ? "\\s+" : (cls[ch] || ch)).join("[\\u064B-\\u065F\\u0640]*\\s*");
+      }
+      function splitName(frags, reversed) {
+        // نُبقي الإملاء الأصلي للعرض (ة، ى، همزات) ونستعمل أنماطاً متسامحة للكشف فقط
+        const ws = frags.map(f => String(f || "").normalize("NFKC").replace(/\s+/g, " ").trim()).join(" ").split(" ").filter(Boolean);
+        let text = (reversed ? ws.map(revStr) : ws).join(" ");
+        let dept = null;
+        for (const [id, words] of SUBJECT_RULES) {
+          for (const w of words) {
+            const re = new RegExp(flexRe(w));
+            if (re.test(text)) { text = text.replace(re, " "); if (!dept) dept = id; }
+          }
+        }
+        // كلمات تعريفية متبقية من عبارة المادة
+        const toks = text.split(" ").filter(t => t && nz(t) !== "لغه" && nz(t) !== "تخصصيه");
+        const out = [];
+        toks.forEach(t => {
+          if (out.length && t.length <= 2) out[out.length - 1] += t; // قطعة مبتورة من نهاية الكلمة السابقة
+          else out.push(t);
+        });
+        return { name: out.join(" "), dept, subjectFound: !!dept };
+      }
+
+      return { DAYS, extractPage, parsePages, matchRows, guessDeptFromName, readableName, splitName, cellToText, findColumns };
     })();
 
     // ==================== تطبيق نتائج قراءة PDF على الكادر ====================
@@ -4450,8 +4533,9 @@
       const added = [];
       const newIdByRow = {};
       mr.unmatched.forEach(({ r, ri }) => {
-        const name = clean(AscPdf.readableName(r.nameFrags, mr.reversedDominant)) || `معلمة (ص${r.page}/س${r.row})`;
-        const dept = AscPdf.guessDeptFromName(r.nameFrags);
+        const sp = AscPdf.splitName(r.nameFrags, mr.reversedDominant);
+        const name = clean(sp.name) || `معلمة (ص${r.page}/س${r.row})`;
+        const dept = sp.dept || "skills";
         const nm = {
           id: "st-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
           name,
@@ -4538,6 +4622,109 @@
       `;
     }
 
+
+    // ==================== التدقيق قبل اعتماد استيراد PDF ====================
+    function analyzeParsedPdf(parsed, label) {
+      const rows = parsed.rows;
+      const mr = AscPdf.matchRows(rows, state.staff);
+      const classSlots = {};
+      const classTeachers = {};
+      const list = rows.map((r, ri) => {
+        const m = mr.matches.get(ri);
+        const perDay = SCHOOL_DAYS.map(d => r.sched[d].filter(Boolean).length);
+        const total = perDay.reduce((a, b) => a + b, 0);
+        const sp = AscPdf.splitName(r.nameFrags, mr.reversedDominant);
+        const pdfName = AscPdf.readableName(r.nameFrags, mr.reversedDominant);
+        const probs = [];
+        (r.issues || []).forEach(i => probs.push(i.msg));
+        if (total === 0) probs.push("لا توجد حصص لهذه المعلمة في الملف");
+        if (total > 30) probs.push("عدد الحصص مرتفع (" + total + ")");
+        if (!m && !sp.dept) probs.push("تعذر تحديد المادة — ستُضاف إلى «المهارات الفردية»");
+        SCHOOL_DAYS.forEach((d, di) => r.sched[d].forEach((c, pi) => {
+          if (!c) return;
+          const mm = String(c).match(/^(\d+)\/(.+)$/);
+          if (!mm) { probs.push("نص غير معتاد في الخلية: " + c); return; }
+          mm[2].split("+").forEach(x => {
+            const k = mm[1] + "/" + x;
+            const slot = d + pi;
+            (classSlots[k] = classSlots[k] || new Set()).add(slot);
+            const key = k + "|" + slot;
+            (classTeachers[key] = classTeachers[key] || []).push(ri);
+          });
+        }));
+        return { ri, page: r.page, row: r.row, pdfName, total, perDay, merged: (r.merged || []).length, notes: [], matched: m ? m.staff.name : null, newName: m ? null : sp.name, newDept: m ? null : (sp.dept || "skills"), probs };
+      });
+      const clsIssues = [];
+      Object.keys(classSlots).sort().forEach(k => { const n = classSlots[k].size; if (n !== 40) clsIssues.push(k + ": " + n + " حصة من 40"); });
+      const clashes = Object.keys(classTeachers).filter(k => classTeachers[k].length > 1);
+      // شعبة عند أكثر من معلمة في الحصة نفسها = تقسيم مجموعات/تدريس مشترك (وارد في الجداول)، نعرضه كمعلومة لا كخطأ
+      clashes.forEach(k => {
+        const cls = k.split("|")[0];
+        classTeachers[k].forEach(ri => {
+          const nt = "الشعبة " + cls + " بالتوازي مع معلمة أخرى";
+          if (!list[ri].notes.includes(nt)) list[ri].notes.push(nt);
+        });
+      });
+      return { list, mr, classCount: Object.keys(classSlots).length, clsIssues, clashCount: clashes.length, cells: rows.reduce((a, r) => a + r.cells, 0), label, parsed };
+    }
+
+    function showImportPreview(parsed, label) {
+      return new Promise(resolve => {
+        const a = analyzeParsedPdf(parsed, label);
+        const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+        const flagged = a.list.filter(x => x.probs.length).length;
+        const newCount = a.list.filter(x => !x.matched).length;
+        const wrap = document.createElement("div");
+        wrap.id = "importPreviewModal";
+        wrap.setAttribute("dir", "rtl");
+        wrap.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:12px;font-family:inherit";
+        const dayNames = ["أحد", "اثن", "ثلا", "أرب", "خمي"];
+        const rowsHtml = a.list.map(x => `
+          <tr class="ipv-row" data-flag="${x.probs.length ? 1 : 0}" style="border-bottom:1px solid #e2e8f0;${x.probs.length ? "background:#fffbeb" : ""}">
+            <td style="padding:4px 6px;color:#64748b">${x.page}/${x.row}</td>
+            <td style="padding:4px 6px;font-weight:700">${esc(x.pdfName)}</td>
+            <td style="padding:4px 6px">${x.matched ? "✓ " + esc(x.matched) : "➕ جديدة: " + esc(x.newName) + " (" + esc(getDeptObj(x.newDept).shortName) + ")"}</td>
+            <td style="padding:4px 6px;text-align:center;font-weight:800">${x.total}</td>
+            <td style="padding:4px 6px;color:#475569;white-space:nowrap">${x.perDay.map((n, i) => dayNames[i] + " " + n).join(" · ")}${x.merged ? ` · <span style="color:#0369a1">حصص مزدوجة ${x.merged}</span>` : ""}</td>
+            <td style="padding:4px 6px"><span style="color:#b45309">${x.probs.map(esc).join("<br>")}</span>${x.notes.length ? `<div style="color:#0369a1;font-size:11px">ℹ ${x.notes.map(esc).join(" • ")}</div>` : ""}</td>
+          </tr>`).join("");
+        wrap.innerHTML = `
+          <div style="background:#fff;border-radius:16px;max-width:1100px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+            <div style="padding:14px 18px;border-bottom:1px solid #e2e8f0">
+              <div style="font-weight:900;font-size:17px;color:#0f766e">🔍 تدقيق الجدول قبل الاستيراد — ${esc(label)}</div>
+              <div style="font-size:12px;color:#475569;margin-top:2px">راجعي النتائج أدناه؛ لن يتغير شيء في النظام إلا بعد الضغط على «اعتماد الاستيراد».</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:10px;font-size:12px">
+                <div style="padding:6px;border-radius:10px;background:#f1f5f9">صفوف المعلمات: <b>${a.list.length}</b></div>
+                <div style="padding:6px;border-radius:10px;background:#ecfdf5">مطابقة للكادر: <b>${a.mr.matches.size}</b></div>
+                <div style="padding:6px;border-radius:10px;background:#f0f9ff">معلمات جديدة: <b>${newCount}</b></div>
+                <div style="padding:6px;border-radius:10px;background:#f1f5f9">إجمالي الحصص: <b>${a.cells}</b></div>
+                <div style="padding:6px;border-radius:10px;background:${a.clsIssues.length ? "#fef2f2" : "#ecfdf5"}">الشعب المفحوصة: <b>${a.classCount}</b> ${a.clsIssues.length ? "(⚠ " + a.clsIssues.length + " ناقصة)" : "(✓ كل شعبة 40 حصة)"}</div>
+                <div style="padding:6px;border-radius:10px;background:${flagged ? "#fffbeb" : "#ecfdf5"}">صفوف بملاحظات: <b>${flagged}</b></div>
+              </div>
+              ${a.clsIssues.length ? `<div style="margin-top:8px;font-size:12px;color:#b91c1c"><b>شعب غير مكتملة:</b> ${a.clsIssues.map(esc).join(" • ")}</div>` : ""}
+              ${a.parsed.warnings && a.parsed.warnings.length ? `<div style="margin-top:6px;font-size:12px;color:#b45309">${a.parsed.warnings.map(w => "⚠ " + esc(w)).join("<br>")}</div>` : ""}
+            </div>
+            <div style="padding:8px 18px;font-size:12px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #e2e8f0">
+              <label style="cursor:pointer"><input type="checkbox" id="ipvOnlyFlag" ${flagged ? "" : "disabled"}> إظهار الصفوف التي بها ملاحظات فقط</label>
+              <span style="color:#64748b">اسم PDF ← المعلمة في النظام | الحصص | التوزيع على الأيام | الملاحظات</span>
+            </div>
+            <div style="overflow:auto;flex:1;padding:0 12px">
+              <table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>${rowsHtml}</tbody></table>
+            </div>
+            <div style="padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-start;flex-wrap:wrap">
+              <button id="ipvOk" style="background:#0f766e;color:#fff;font-weight:800;border-radius:12px;padding:10px 20px;border:0;cursor:pointer">✓ اعتماد الاستيراد</button>
+              <button id="ipvNo" style="background:#e2e8f0;color:#334155;font-weight:800;border-radius:12px;padding:10px 20px;border:0;cursor:pointer">إلغاء</button>
+            </div>
+          </div>`;
+        document.body.appendChild(wrap);
+        const close = (ok) => { wrap.remove(); resolve(ok); };
+        wrap.querySelector("#ipvOk").addEventListener("click", () => close(true));
+        wrap.querySelector("#ipvNo").addEventListener("click", () => close(false));
+        const cb = wrap.querySelector("#ipvOnlyFlag");
+        cb.addEventListener("change", () => wrap.querySelectorAll(".ipv-row").forEach(tr => { tr.style.display = cb.checked && tr.dataset.flag !== "1" ? "none" : ""; }));
+      });
+    }
+
     async function handlePdfUpload(file) {
       if (!file) return;
       if (!can("import")) { showToast("ليست لديكِ صلاحية استيراد الجداول", "error"); return; }
@@ -4574,6 +4761,13 @@
             <div class="text-teal-900 font-bold">يمكنك استخدام (📊 استيراد Excel / XML) أو (لصق نص جدول).</div>`;
           statusEl.textContent = "لم يُعثر على جدول مطابق للتنسيق المعتمد.";
           showToast("لم يتم التعرف على تنسيق الجدول في الملف", "error");
+          return;
+        }
+        statusEl.textContent = "تم تحليل الملف — بانتظار مراجعتكِ واعتمادكِ...";
+        const okImport = await showImportPreview(parsed, file.name);
+        if (!okImport) {
+          statusEl.textContent = "أُلغي الاستيراد — لم يتغير أي شيء في النظام.";
+          showToast("أُلغي الاستيراد ولم تتغير البيانات");
           return;
         }
         const info = applyAscRowsToState(parsed, file.name);
