@@ -54,6 +54,7 @@
     .is-standalone input, .is-standalone textarea, .is-standalone select { user-select: text; -webkit-user-select: text; }
     nav.flex-wrap[aria-label] { flex-wrap: nowrap !important; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; scroll-snap-type: x proximity; }
     nav.flex-wrap[aria-label]::-webkit-scrollbar { display: none; }
+    @media (min-width: 640px) { nav.flex-wrap[aria-label] { flex-wrap: wrap !important; overflow-x: visible; } }
     nav.flex-wrap[aria-label] > button { flex: 0 0 auto; white-space: nowrap; scroll-snap-align: start; }
     @media (max-width: 640px) {
       input, select, textarea { font-size: 16px !important; }   /* يمنع تكبير الصفحة تلقائيًا في iOS */
@@ -212,6 +213,7 @@
             <span>👤 <span id="userChipName"></span> <span id="userChipRole" class="px-1.5 py-0.5 rounded-md bg-amber-400/25 text-amber-100"></span></span>
             <button id="btnInstallApp" type="button" data-pwa-act="install" class="px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold" title="تثبيت التطبيق على الجهاز">📲 تثبيت</button>
             <button type="button" data-user-act="tour" class="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/30" title="جولة توضيحية">🎓 جولة</button>
+            <button type="button" data-user-act="accounts" data-requires="accounts" class="px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold" title="إدارة الحسابات">👥 الحسابات</button>
             <button type="button" data-user-act="support" class="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/30" title="الدعم الفني">🛟 دعم</button>
             <button type="button" data-user-act="pwd" class="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/30" title="تغيير كلمة المرور">🔑</button>
             <button type="button" data-user-act="logout" class="px-2 py-1 rounded-lg bg-rose-500/80 hover:bg-rose-500">خروج</button>
@@ -3154,6 +3156,7 @@
           if (a === "logout") logout();
           else if (a === "tour") startTour(false);
           else if (a === "support") switchTab("support");
+          else if (a === "accounts") { if (can("accounts")) switchTab("accounts"); }
           else if (a === "pwd") document.getElementById("pwdModal").classList.remove("hidden");
         } else if ((b = t.closest("[data-acc-act]"))) accountAction(b.getAttribute("data-acc-act"), b.getAttribute("data-id"));
         else if (t.closest("[data-acc-cancel]")) document.getElementById("accountModal").classList.add("hidden");
