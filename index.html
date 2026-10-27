@@ -3381,7 +3381,7 @@
       const toks = (n) => String(n || "").split(/\s+/).filter(w => w && w !== "بنت" && w !== "بن").map(core);
       const seed = PHONE_SEED.map(([n, ph]) => ({ t: toks(n), ph, used: false }));
       state.staff.forEach(m => {
-        if (m.phone) return;
+        if (m.phone && m.phoneSrc !== "seed") return; // لا نستبدل رقماً أُدخل يدوياً
         const ta = toks(m.name); if (ta.length < 2) return;
         let best = null;
         seed.forEach(sd => {
@@ -3392,7 +3392,7 @@
           sc += ta.slice(1, -1).filter(x => x.length > 2 && sd.t.includes(x)).length;
           if (sc >= 20 && (!best || sc > best.sc)) best = { sd, sc };
         });
-        if (best) { m.phone = best.sd.ph; best.sd.used = true; }
+        if (best) { m.phone = best.sd.ph; m.phoneSrc = "seed"; best.sd.used = true; }
       });
     }
 
@@ -6564,6 +6564,7 @@
             existing.role = role;
             existing.dept = dept;
             existing.subDept = subDept;
+            if (existing.phone !== phone) existing.phoneSrc = "manual";
             existing.phone = phone;
             setMemberQuotaAndSyncSchedule(existing, quota);
             existing.subCount = subCount;
