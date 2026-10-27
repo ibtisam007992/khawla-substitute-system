@@ -111,6 +111,8 @@
         <input id="setupPass2" type="password" autocomplete="new-password" placeholder="تأكيد كلمة المرور" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <p id="authSetupMsg" class="text-xs font-bold text-rose-700 min-h-[1rem]"></p>
         <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-sm">إنشاء الحساب والدخول</button>
+        <div class="border-t border-slate-200 pt-3 text-[11px] text-slate-600 leading-relaxed">أنشأتِ حساباً من قبل؟ الحسابات تُحفظ داخل المتصفح الذي أنشأتِها فيه فقط. افتحي النظام في ذلك المتصفح نفسه، أو استعيديها من ملف النسخة الاحتياطية:
+          <label class="mt-2 block text-center px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-extrabold cursor-pointer">📂 استرجاع الحسابات والبيانات من ملف نسخة احتياطية<input id="authRestoreInput" type="file" accept=".json,application/json" class="hidden" /></label></div>
       </form>
 
       <form id="authRecoverForm" class="space-y-3 hidden">
@@ -2841,7 +2843,7 @@
 
     // ---- نسخ احتياطية تلقائية ----
     function snapPayload() {
-      return { v: 3, exportedAt: new Date().toISOString(), staff: state.staff, byDate: state.byDate, absences: state.absences, substitutions: state.substitutions, currentDate: state.selectedDate, notify: NOTIFY };
+      return { v: 3, accounts: AUTH.users, exportedAt: new Date().toISOString(), staff: state.staff, byDate: state.byDate, absences: state.absences, substitutions: state.substitutions, currentDate: state.selectedDate, notify: NOTIFY };
     }
     function maybeSnapshot(force) {
       try {
@@ -2957,6 +2959,22 @@
     });
     document.addEventListener("change", e => {
       const t = e.target;
+      if (t.id === "authRestoreInput") {
+        const f = t.files[0]; t.value = ""; if (!f) return;
+        const rd = new FileReader();
+        rd.onload = () => {
+          try {
+            const d = JSON.parse(rd.result);
+            if (!d || !Array.isArray(d.accounts) || !d.accounts.length) throw new Error("هذه النسخة لا تحتوي حسابات (أُنشئت قبل هذا التحديث). أنشئي حساب المسؤول الفني من جديد.");
+            lsSet(K_ACC, d.accounts);
+            if (Array.isArray(d.staff) && d.staff.length) {
+              localStorage.setItem(STORE_KEY, JSON.stringify({ v: 7, staff: d.staff, byDate: d.byDate || {}, absences: d.absences || [], substitutions: d.substitutions || [], currentDate: d.currentDate }));
+            }
+            location.reload();
+          } catch (er) { const m = document.getElementById("authSetupMsg"); if (m) m.textContent = clean(er.message); }
+        };
+        rd.readAsText(f); return;
+      }
       if (t.id === "phoneXlsxInput") { handlePhoneXlsx(t.files[0]); t.value = ""; return; }
       if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
       if (t.id === "maxSubsSel") {
@@ -3296,7 +3314,7 @@
       showToast("تم تنفيذ الإصلاح التلقائي");
     }
     function backupNow() {
-      const data = { v: 3, exportedAt: new Date().toISOString(), staff: state.staff, byDate: state.byDate, absences: state.absences, substitutions: state.substitutions, currentDate: state.selectedDate, notify: NOTIFY };
+      const data = { v: 3, exportedAt: new Date().toISOString(), staff: state.staff, byDate: state.byDate, absences: state.absences, substitutions: state.substitutions, currentDate: state.selectedDate, notify: NOTIFY, accounts: AUTH.users };
       const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob); a.download = `نسخة-احتياط-${localIso(new Date())}.json`;
