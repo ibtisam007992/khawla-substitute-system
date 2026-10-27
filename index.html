@@ -439,12 +439,12 @@
                 <label class="text-xs font-extrabold text-slate-800">ضعي علامة (✓) أمام جميع المعلمات الغائبات (توزيع فوري تلقائي):</label>
                 <span id="multiSelectedCountBadge" class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-extrabold">1 محددة</span>
               </div>
-              <input id="multiAbsenceSearchInput" type="text" placeholder="ابحثي عن اسم المعلمة لتحديدها..." class="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-600" />
+              <input id="multiAbsenceSearchInput" type="search" autocomplete="off" placeholder="🔍 اكتبي اسم المعلمة الغائبة ثم اضغطي Enter لتسجيل غيابها" class="w-full px-3.5 py-3 rounded-xl border-2 border-teal-500 bg-white text-sm font-extrabold focus:outline-none focus:ring-2 focus:ring-teal-600" /><div id="multiSearchInfo" class="text-[11px] font-bold text-slate-500 px-1 min-h-[1rem]"></div>
               <div class="flex items-center justify-between text-[11px] font-bold text-teal-800 px-0.5">
                 <button id="btnSelectVisibleTeachers" type="button" class="hover:underline">تحديد المعروض</button>
                 <button id="btnClearMultiTeachers" type="button" class="text-rose-700 hover:underline">إلغاء تحديد الكل</button>
               </div>
-              <div id="multiAbsenceChecklistContainer" class="max-h-44 overflow-y-auto custom-scrollbar space-y-1 pr-0.5">
+              <div id="multiAbsenceChecklistContainer" class="max-h-64 overflow-y-auto custom-scrollbar space-y-1 pr-0.5">
               </div>
             </div>
 
@@ -2098,6 +2098,14 @@
       applyPermissions();
       switchTab("daily");
       if (PWA.startTab && canTab(PWA.startTab)) { switchTab(PWA.startTab); PWA.startTab = null; }
+      setTimeout(() => {
+        try {
+          state.multiTeacherSearch = "";
+          const f = document.getElementById("absenceDeptFilter"), si = document.getElementById("multiAbsenceSearchInput");
+          if (user.role === "familyLead" && f && Array.from(f.options).some(o => o.value === user.deptId)) { f.value = user.deptId; f.dispatchEvent(new Event("change", { bubbles: true })); }
+          if (si) { si.value = ""; if (lsGet("khawla_tour_" + user.id, false)) { si.scrollIntoView({ block: "center" }); si.focus({ preventScroll: true }); } }
+        } catch (e) { /* */ }
+      }, 400);
       if (NOTIFY.keepAwake) requestWake();
       if (!lsGet("khawla_tour_" + user.id, false)) setTimeout(() => startTour(true), 700);
     }
@@ -4133,11 +4141,13 @@
       if (checklistContainer) {
         const visibleTeachers = deptFiltered.filter(m => {
           if (!searchQ) return true;
-          return normalizeArabic(`${m.name} ${m.subDept} ${getDeptObj(m.dept).shortName}`).includes(searchQ);
+          const hay = normalizeArabic(`${m.name} ${m.subDept} ${getDeptObj(m.dept).shortName}`); return searchQ.split(/\s+/).filter(Boolean).every(t => hay.includes(t));
         });
 
         // Sync multiSelectedTeacherIds with actual absent teachers for today so checkboxes reflect live status
         state.multiSelectedTeacherIds = state.absences.filter(a => a.day === day).map(a => a.teacherId);
+        const info = document.getElementById("multiSearchInfo");
+        if (info) info.textContent = searchQ ? (visibleTeachers.length ? `${visibleTeachers.length} نتيجة${visibleTeachers.length === 1 ? " — اضغطي Enter للتسجيل" : ""}` : "لا توجد نتائج") : "";
         checklistContainer.innerHTML = visibleTeachers.map(m => {
           const alreadyAbsent = isTeacherAbsentToday(m.id, day);
           const checked = alreadyAbsent ? "checked" : "";
@@ -6527,6 +6537,20 @@
         renderAbsenceFormTeacherSelect();
       });
       document.getElementById("multiAbsenceSearchInput").addEventListener("input", (e) => onMultiSearch(e.target.value));
+      document.getElementById("multiAbsenceSearchInput").addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const inp = e.target;
+        state.multiTeacherSearch = inp.value; renderAbsenceFormTeacherSelect();
+        const cbs = Array.from(document.querySelectorAll("#multiAbsenceChecklistContainer .multi-absent-teacher-cb"));
+        const free = cbs.filter(c => !c.checked);
+        if (!cbs.length) { showToast("لا توجد معلمة بهذا الاسم", "error"); return; }
+        if (cbs.length === 1 && free.length === 1) {
+          free[0].checked = true; free[0].dispatchEvent(new Event("change", { bubbles: true }));
+          state.multiTeacherSearch = ""; inp.value = ""; renderAbsenceFormTeacherSelect(); inp.focus();
+        } else if (cbs.length === 1) showToast("هذه المعلمة مسجّلة غائبة بالفعل", "info");
+        else showToast(`${cbs.length} نتيجة — اضغطي ✓ أمام المعلمة المقصودة أو أكملي كتابة الاسم`, "info");
+      });
 
       document.getElementById("multiAbsenceChecklistContainer").addEventListener("change", (e) => {
         if (e.target.classList.contains("multi-absent-teacher-cb")) {
