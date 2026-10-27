@@ -369,12 +369,17 @@
           </button>
           <button type="button" data-x-act="fairness" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm">⚖ عدالة توزيع الاحتياط</button>
           <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-900 cursor-pointer"><input id="fairAutoToggle" type="checkbox" class="accent-amber-600" checked /> العدالة التلقائية</label>
+          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 text-[11px] font-bold text-orange-900" title="عند كثرة الغياب تأخذ البديلة أكثر من حصة فقط إذا لم تتبقَّ معلمة متفرغة">أقصى حصص للبديلة يومياً <select id="maxSubsSel" class="rounded-lg border border-orange-300 bg-white px-1 font-extrabold"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
           <span id="fairBadge" class="px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-700"></span>
           <button id="btnOpenFamilyPrintModal" type="button" class="px-3.5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
             <svg class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
             <span>طباعة جدول الاحتياط لكل أسرة</span>
           </button>
           <button type="button" data-x-act="waQueue" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">📲 إرسال واتساب لجميع المكلّفات</button>
+          <button type="button" data-x-act="report" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">📊 تقرير الاحتياط</button>
+          <button type="button" data-x-act="auditLog" class="px-3.5 py-2 rounded-xl bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs">🕘 سجل التعديلات</button>
+          <button type="button" data-x-act="backups" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold text-xs">🛡 النسخ التلقائية</button>
+          <span id="conflictBar" data-x-act="conflicts" class="hidden"></span>
           <button id="btnClearDaily" type="button" class="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs sm:text-sm border border-rose-200 transition">
             تصفير جدول اليوم
           </button>
@@ -1454,6 +1459,8 @@
     }
 
     // ==================== رصيد الاحتياط التراكمي (يُحسب من السجل — لا يتضخم بالتعديل اليدوي) ====================
+    let MAX_SUBS = 2, SUB_CAP = 1;
+    try { const mv = Number(localStorage.getItem("khawla_max_subs")); if (mv >= 1 && mv <= 3) MAX_SUBS = mv; } catch (e) { /* */ }
     let FAIR_AUTO = true;
     try { FAIR_AUTO = localStorage.getItem("khawla_fair_auto") !== "0"; } catch (e) { /* */ }
     let BALANCE_CACHE = null, LAST_SUB_CACHE = null, DEBT_CACHE = null;
@@ -2050,7 +2057,7 @@
     function audit(action) {
       const log = lsGet(K_AUDIT, []);
       log.unshift({ t: new Date().toISOString(), u: AUTH.me ? AUTH.me.name : "—", a: clean(action) });
-      lsSet(K_AUDIT, log.slice(0, 200));
+      lsSet(K_AUDIT, log.slice(0, 600));
     }
     function saveUsers() { lsSet(K_ACC, AUTH.users); }
 
@@ -2484,6 +2491,8 @@
         m.name = nm;
         if (m.phone !== ph) m.phoneSrc = "manual";
         m.phone = ph;
+        audit(`تعديل بيانات معلمة: ${nm}${m.phone ? " (واتساب محدَّث)" : ""}`);
+        audit(`تعديل الاسم/الواتساب: ${nm}`);
         invalidateCaches(); saveState(); renderAll(); w.remove();
         showToast(`تم تحديث بيانات (${nm})`);
       });
@@ -2665,8 +2674,9 @@
       const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">${mgmtOnly ? "🏫 إرسال واتساب للإدارة ومسؤولات الاحتياط" : "👩‍🏫 إرسال واتساب لكل معلمة"}</h3>
         <p style="font-size:12px;color:#475569;margin:4px 0 8px">المكلّفات بالاحتياط يصلهنّ تذكير شخصي، وبقية المعلمات تصلهنّ الرسالة الموحدة. يفتح كل زر محادثة واتساب جاهزة للإرسال.</p>
         <label style="font-size:12px;font-weight:700"><input type="checkbox" id="waOnlyAssigned"> المكلّفات بالاحتياط فقط</label>
+        <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="waNext" style="background:#047857;color:#fff;font-weight:900;border-radius:10px;padding:7px 14px;border:0;cursor:pointer">▶ إرسال للتالية (بالتتابع)</button><button type="button" id="waReset" style="background:#e2e8f0;font-weight:800;border-radius:10px;padding:7px 12px;border:0;cursor:pointer">مسح علامات اليوم</button><span id="waProg" style="font-size:12px;font-weight:800;color:#475569;align-self:center"></span></div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><tbody id="waQBody">
-        ${rows.map(s => { const g = byId.get(s.id), ph = normalizePhone(s.phone); return `<tr data-as="${g ? 1 : 0}" style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(s.name)}</td><td style="padding:6px;color:#64748b">${g ? "مكلّفة بالاحتياط" : mgmtIds.has(s.id) ? "إدارة / مسؤولة احتياط" : "إعلام عام"}</td><td style="padding:6px">${ph ? `<button type="button" data-wa-send="${s.id}" style="background:#059669;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">إرسال</button>` : '<span style="color:#b45309">لا رقم هاتف</span>'}</td></tr>`; }).join("") || '<tr><td style="padding:12px;color:#64748b">لا توجد معلمات بأرقام هواتف — أضيفيها من (تعديل) في بيانات الكادر.</td></tr>'}
+        ${rows.map(s => { const g = byId.get(s.id), ph = normalizePhone(s.phone); return `<tr data-as="${g ? 1 : 0}" data-sid="${s.id}" style="border-bottom:1px solid #e2e8f0"><td style="padding:6px;font-weight:800">${esc2(s.name)}</td><td style="padding:6px;color:#64748b">${g ? "مكلّفة بالاحتياط" : mgmtIds.has(s.id) ? "إدارة / مسؤولة احتياط" : "إعلام عام"}</td><td style="padding:6px">${ph ? (waSentGet().has(s.id) ? `<button type="button" data-wa-send="${s.id}" style="background:#64748b;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">✓ أُرسل (إعادة)</button>` : `<button type="button" data-wa-send="${s.id}" style="background:#059669;color:#fff;font-weight:800;border-radius:10px;padding:5px 12px;border:0;cursor:pointer">إرسال</button>`) : '<span style="color:#b45309">لا رقم هاتف</span>'}</td></tr>`; }).join("") || '<tr><td style="padding:12px;color:#64748b">لا توجد معلمات بأرقام هواتف — أضيفيها من (تعديل) في بيانات الكادر.</td></tr>'}
         </tbody></table>
         <div style="margin-top:12px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
       w.querySelector("#waOnlyAssigned").onchange = (e) => w.querySelectorAll("#waQBody tr").forEach(tr => { tr.style.display = e.target.checked && tr.dataset.as !== "1" ? "none" : ""; });
@@ -2675,9 +2685,24 @@
         const s = state.staff.find(m => m.id === b.getAttribute("data-wa-send")); if (!s) return;
         const g = byId.get(s.id);
         openWhatsApp(s.phone, g ? notifyMessage(g) : msgAll);
-        b.textContent = "✓ أُرسل"; b.style.background = "#64748b";
+        b.textContent = "✓ أُرسل (إعادة)"; b.style.background = "#64748b";
+        waSentAdd(s.id); waProg();
         audit(`واتساب إلى ${s.name}`);
       });
+      const waProg = () => {
+        const trs = Array.from(w.querySelectorAll("#waQBody tr[data-sid]")).filter(tr => tr.style.display !== "none" && tr.querySelector("[data-wa-send]"));
+        const sent = waSentGet(); const done = trs.filter(tr => sent.has(tr.dataset.sid)).length;
+        w.querySelector("#waProg").textContent = `أُرسل ${done} من ${trs.length}`;
+      };
+      waProg();
+      w.querySelector("#waNext").onclick = () => {
+        const sent = waSentGet();
+        const only = w.querySelector("#waOnlyAssigned").checked;
+        const tr = Array.from(w.querySelectorAll("#waQBody tr[data-sid]")).find(t => t.querySelector("[data-wa-send]") && !sent.has(t.dataset.sid) && (!only || t.dataset.as === "1"));
+        if (!tr) { showToast("تم الإرسال لجميع المعلمات في القائمة", "info"); return; }
+        tr.querySelector("[data-wa-send]").click(); tr.scrollIntoView({ block: "center" });
+      };
+      w.querySelector("#waReset").onclick = () => { try { localStorage.removeItem(waSentKey()); } catch (e) { /* */ } w.remove(); waQueue(mgmtOnly); };
     }
 
     // --- صورة جدول التوقيت + أوقات البداية والنهاية ---
@@ -2710,7 +2735,154 @@
       fr.readAsDataURL(file);
     }
 
+    // ==================== حزمة التحسينات: تقارير / سجل / تعارضات / نسخ تلقائية ====================
+    const K_SNAP = "khawla_snaps_v1";
+    function waSentKey() { return "khawla_wa_sent_" + (state.selectedDate || ""); }
+    function waSentGet() { return new Set(lsGet(waSentKey(), [])); }
+    function waSentAdd(id) { const s = waSentGet(); s.add(id); lsSet(waSentKey(), Array.from(s)); }
+
+    function allDaysData() {
+      const out = {};
+      Object.keys(state.byDate || {}).forEach(dt => { const d = state.byDate[dt]; if (d) out[dt] = { absences: d.absences || [], substitutions: d.substitutions || [] }; });
+      if (state.selectedDate) out[state.selectedDate] = { absences: state.absences, substitutions: state.substitutions };
+      return out;
+    }
+    function buildReport(from, to) {
+      const days = allDaysData(), rows = new Map();
+      state.staff.forEach(m => rows.set(m.id, { m, subs: 0, abs: 0, dbl: 0 }));
+      Object.keys(days).filter(d => d >= from && d <= to).forEach(dt => {
+        const seenAbs = new Set(), perDay = {};
+        days[dt].absences.forEach(a => { if (a && a.teacherId && !seenAbs.has(a.teacherId)) { seenAbs.add(a.teacherId); const r = rows.get(a.teacherId); if (r) r.abs++; } });
+        days[dt].substitutions.forEach(s => { if (s && s.substituteTeacherId) { const r = rows.get(s.substituteTeacherId); if (r) { r.subs++; perDay[s.substituteTeacherId] = (perDay[s.substituteTeacherId] || 0) + 1; } } });
+        Object.keys(perDay).forEach(id => { if (perDay[id] > 1) { const r = rows.get(id); if (r) r.dbl++; } });
+      });
+      return Array.from(rows.values()).filter(r => !/مديرة/.test(r.m.role || "")).sort((a, b) => b.subs - a.subs || a.m.name.localeCompare(b.m.name, "ar"));
+    }
+    function showReport() {
+      const now = state.selectedDate || localIso(new Date());
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">📊 تقرير عدالة الاحتياط</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12px;font-weight:700">من <input type="date" id="rpFrom" value="${now.slice(0, 8)}01" style="border:1px solid #cbd5e1;border-radius:8px;padding:4px"> إلى <input type="date" id="rpTo" value="${now}" style="border:1px solid #cbd5e1;border-radius:8px;padding:4px">
+        <button type="button" id="rpCsv" style="background:#0f766e;color:#fff;border-radius:10px;padding:6px 12px;border:0;font-weight:800;cursor:pointer">⬇ تصدير Excel</button>
+        <button type="button" id="rpPrint" style="background:#475569;color:#fff;border-radius:10px;padding:6px 12px;border:0;font-weight:800;cursor:pointer">🖨 طباعة</button></div>
+        <div id="rpBody"></div><div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+      const draw = () => {
+        const rows = buildReport(w.querySelector("#rpFrom").value, w.querySelector("#rpTo").value);
+        w._rows = rows;
+        const total = rows.reduce((a, r) => a + r.subs, 0);
+        w.querySelector("#rpBody").innerHTML = `<p style="font-size:12px;color:#475569">إجمالي حصص الاحتياط في الفترة: <b>${total}</b></p>
+          <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f1f5f9"><th style="padding:6px;text-align:right">المعلمة</th><th>الأسرة</th><th>النصاب</th><th>حصص الاحتياط</th><th>أيام بحصتين</th><th>أيام الغياب</th><th>الرصيد التراكمي</th></tr></thead><tbody>
+          ${rows.map(r => `<tr style="border-bottom:1px solid #e2e8f0;text-align:center"><td style="padding:5px;text-align:right;font-weight:800">${esc2(r.m.name)}</td><td>${esc2(getDeptObj(r.m.dept).shortName)}</td><td>${countMemberScheduledPeriods(r.m)}</td><td style="font-weight:900">${r.subs}</td><td>${r.dbl}</td><td>${r.abs}</td><td>${getSubBalance(r.m)}</td></tr>`).join("")}</tbody></table>`;
+      };
+      draw();
+      w.querySelector("#rpFrom").onchange = draw; w.querySelector("#rpTo").onchange = draw;
+      w.querySelector("#rpCsv").onclick = () => {
+        const head = ["المعلمة", "الأسرة", "النصاب", "حصص الاحتياط", "أيام بحصتين", "أيام الغياب", "الرصيد التراكمي"];
+        const csv = [head].concat((w._rows || []).map(r => [r.m.name, getDeptObj(r.m.dept).shortName, countMemberScheduledPeriods(r.m), r.subs, r.dbl, r.abs, getSubBalance(r.m)]))
+          .map(l => l.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+        a.download = `تقرير-الاحتياط-${w.querySelector("#rpFrom").value}_${w.querySelector("#rpTo").value}.csv`;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        audit("تصدير تقرير الاحتياط");
+      };
+      w.querySelector("#rpPrint").onclick = () => {
+        const pw = window.open("", "_blank"); if (!pw) return;
+        pw.document.write(`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير الاحتياط</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #333;padding:5px;text-align:center;font-size:12px}</style></head><body><h3>مدرسة خولة بنت حكيم للبنات (9-12) — تقرير حصص الاحتياط من ${w.querySelector("#rpFrom").value} إلى ${w.querySelector("#rpTo").value}</h3>${w.querySelector("#rpBody").innerHTML}</body></html>`);
+        pw.document.close(); pw.focus(); setTimeout(() => pw.print(), 300);
+      };
+    }
+
+    function showAuditLog() {
+      const log = lsGet(K_AUDIT, []);
+      xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">🕘 سجل التعديلات (آخر ${Math.min(log.length, 300)})</h3>
+        <div style="font-size:12px;margin-top:8px">${log.slice(0, 300).map(l => `<div style="display:flex;gap:8px;padding:5px;border-bottom:1px solid #e2e8f0"><span dir="ltr" style="color:#94a3b8;white-space:nowrap">${esc2(l.t.slice(0, 16).replace("T", " "))}</span><b style="white-space:nowrap">${esc2(l.u)}</b><span style="color:#475569">${esc2(l.a)}</span></div>`).join("") || "لا يوجد نشاط"}</div>
+        <div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+    }
+
+    // ---- كشف التعارضات ----
+    function findConflicts() {
+      const out = [], day = state.selectedDay, subs = state.substitutions.filter(s => s.day === day);
+      const byTP = new Map(), perT = new Map();
+      subs.forEach(s => {
+        const sub = state.staff.find(m => m.id === s.substituteTeacherId);
+        const abs = state.staff.find(m => m.id === s.absentTeacherId);
+        const tag = `الحصة ${s.period} — ${abs ? abs.name : "؟"}`;
+        if (!sub) { out.push({ k: "none", t: `${tag}: لا توجد بديلة`, lvl: "info" }); return; }
+        const key = sub.id + "|" + s.period;
+        byTP.set(key, (byTP.get(key) || 0) + 1);
+        perT.set(sub.id, (perT.get(sub.id) || 0) + 1);
+        if (isTeacherAbsentToday(sub.id, day)) out.push({ k: "abs", t: `${tag}: البديلة ${sub.name} غائبة اليوم`, lvl: "err" });
+        else if (isTeacherAbsentInPeriod(sub.id, day, s.period)) out.push({ k: "absp", t: `${tag}: البديلة ${sub.name} غائبة في هذه الحصة`, lvl: "err" });
+        const ds = (sub.schedule && sub.schedule[day]) || [];
+        if (ds[Number(s.period) - 1]) out.push({ k: "busy", t: `${tag}: البديلة ${sub.name} لديها حصة (${ds[Number(s.period) - 1]}) في نفس الوقت`, lvl: "err" });
+        if (sub.noSub) out.push({ k: "nosub", t: `${tag}: ${sub.name} مُستثناة من الاحتياط`, lvl: "warn" });
+        if (/مديرة/.test(sub.role || "")) out.push({ k: "mgmt", t: `${tag}: البديلة ${sub.name} من الإدارة`, lvl: "warn" });
+      });
+      byTP.forEach((n, key) => { if (n > 1) { const [id, p] = key.split("|"); const m = state.staff.find(x => x.id === id); out.push({ k: "dbl", t: `${m ? m.name : "؟"} مكلّفة بأكثر من حصة في الحصة ${p} نفسها`, lvl: "err" }); } });
+      perT.forEach((n, id) => { if (n > MAX_SUBS) { const m = state.staff.find(x => x.id === id); out.push({ k: "over", t: `${m ? m.name : "؟"} لديها ${n} حصص احتياط (الحد ${MAX_SUBS})`, lvl: "warn" }); } });
+      return out;
+    }
+    function updateConflictBar() {
+      const el = document.getElementById("conflictBar"); if (!el) return;
+      let c = []; try { c = findConflicts(); } catch (e) { /* */ }
+      const bad = c.filter(x => x.lvl !== "info");
+      if (!bad.length) { el.className = "hidden"; el.textContent = ""; return; }
+      const err = bad.filter(x => x.lvl === "err").length;
+      el.className = "px-3 py-2 rounded-xl text-[11px] font-extrabold cursor-pointer " + (err ? "bg-rose-100 text-rose-800 border border-rose-300" : "bg-amber-100 text-amber-900 border border-amber-300");
+      el.textContent = `⚠ ${bad.length} تنبيه تعارض في توزيع اليوم — اضغطي للتفاصيل`;
+    }
+    function showConflicts() {
+      const c = findConflicts();
+      xModal(`<h3 style="font-weight:900;color:#b45309;font-size:16px">⚠ تنبيهات توزيع اليوم</h3>
+        <ul style="font-size:12px;margin-top:8px;list-style:none;padding:0">${c.map(x => `<li style="padding:6px;border-bottom:1px solid #e2e8f0;color:${x.lvl === "err" ? "#b91c1c" : x.lvl === "warn" ? "#b45309" : "#475569"}">${x.lvl === "err" ? "⛔" : x.lvl === "warn" ? "⚠" : "ℹ"} ${esc2(x.t)}</li>`).join("") || "<li>لا توجد تعارضات</li>"}</ul>
+        <div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+    }
+
+    // ---- نسخ احتياطية تلقائية ----
+    function snapPayload() {
+      return { v: 3, exportedAt: new Date().toISOString(), staff: state.staff, byDate: state.byDate, absences: state.absences, substitutions: state.substitutions, currentDate: state.selectedDate, notify: NOTIFY };
+    }
+    function maybeSnapshot(force) {
+      try {
+        if (!state.staff || !state.staff.length) return;
+        const today = localIso(new Date()), snaps = lsGet(K_SNAP, []);
+        if (!force && snaps.length && snaps[0].t.slice(0, 10) === today) return;
+        const entry = { t: new Date().toISOString(), n: state.staff.length, d: JSON.stringify(snapPayload()) };
+        let list = [entry].concat(force ? snaps : snaps).slice(0, 7);
+        while (list.length) { try { localStorage.setItem(K_SNAP, JSON.stringify(list)); return; } catch (e) { list.pop(); } }
+      } catch (e) { /* */ }
+    }
+    function applyBackupData(d) {
+      state.staff = d.staff; state.byDate = d.byDate || {}; state.absences = d.absences || []; state.substitutions = d.substitutions || [];
+      state.staff.forEach(sanitizeStaffRecord);
+      state.selectedDate = d.currentDate || state.selectedDate;
+      changeWorkingDate(localIso(new Date()), true);
+      saveState(); renderAll();
+    }
+    function showBackups() {
+      const snaps = lsGet(K_SNAP, []);
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">🛡 النسخ الاحتياطية التلقائية</h3>
+        <p style="font-size:12px;color:#475569;margin:4px 0 8px">يحفظ النظام نسخة تلقائية مرة كل يوم (آخر 7 نسخ) داخل هذا المتصفح. للحماية الكاملة نزّلي نسخة ملف دورياً.</p>
+        <div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" id="bkNow" style="background:#0f766e;color:#fff;font-weight:800;border-radius:10px;padding:6px 12px;border:0;cursor:pointer">💾 حفظ نسخة الآن</button>
+        <button type="button" id="bkDl" style="background:#4338ca;color:#fff;font-weight:800;border-radius:10px;padding:6px 12px;border:0;cursor:pointer">⬇ تنزيل ملف</button></div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse"><tbody>${snaps.map((s, i) => `<tr style="border-bottom:1px solid #e2e8f0"><td dir="ltr" style="padding:6px">${esc2(s.t.slice(0, 16).replace("T", " "))}</td><td>${s.n} موظفة</td><td>${can("restore") ? `<button type="button" data-bk-restore="${i}" style="background:#b45309;color:#fff;font-weight:800;border-radius:10px;padding:4px 10px;border:0;cursor:pointer">استرجاع</button>` : ""}</td></tr>`).join("") || "<tr><td>لا توجد نسخ بعد</td></tr>"}</tbody></table>
+        <div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+      w.querySelector("#bkNow").onclick = () => { maybeSnapshot(true); audit("حفظ نسخة تلقائية يدوية"); w.remove(); showBackups(); };
+      w.querySelector("#bkDl").onclick = () => backupNow();
+      w.addEventListener("click", e => {
+        const b = e.target.closest("[data-bk-restore]"); if (!b || !can("restore")) return;
+        const s = snaps[Number(b.getAttribute("data-bk-restore"))]; if (!s) return;
+        if (!confirm("استرجاع هذه النسخة؟ ستُستبدل البيانات الحالية (تُحفظ نسخة منها قبل ذلك).")) return;
+        maybeSnapshot(true);
+        try { applyBackupData(JSON.parse(s.d)); audit("استرجاع نسخة تلقائية " + s.t.slice(0, 16)); showToast("تم الاسترجاع"); w.remove(); } catch (er) { showToast("تعذّر الاسترجاع", "error"); }
+      });
+    }
+
     function xAction(act) {
+      if (act === "report") return showReport();
+      if (act === "auditLog") return showAuditLog();
+      if (act === "conflicts") return showConflicts();
+      if (act === "backups") return showBackups();
       if (act === "famAccounts") { if (can("accounts")) createFamilyAccounts(); }
       else if (act === "fairness") showFairness();
       else if (act === "clearSchedule") clearImportedSchedule();
@@ -2729,6 +2901,11 @@
     document.addEventListener("change", e => {
       const t = e.target;
       if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
+      if (t.id === "maxSubsSel") {
+        MAX_SUBS = Number(t.value) || 2; try { localStorage.setItem("khawla_max_subs", String(MAX_SUBS)); } catch (e) { /* */ }
+        autoAssignSubstitutionsForDay(state.selectedDay, true); audit(`تغيير الحد الأقصى لحصص البديلة يومياً إلى ${MAX_SUBS}`);
+        showToast(`الحد الأقصى لحصص البديلة يومياً: ${MAX_SUBS} (يُستخدم عند الحاجة فقط)`); return;
+      }
       if (t.id === "fairAutoToggle") {
         FAIR_AUTO = t.checked; try { localStorage.setItem("khawla_fair_auto", FAIR_AUTO ? "1" : "0"); } catch (e) { /* */ }
         invalidateCaches(); autoAssignSubstitutionsForDay(state.selectedDay, true);
@@ -3431,6 +3608,7 @@
 
     function saveState() {
       invalidateCaches();
+      try { maybeSnapshot(false); } catch (e) { /* */ }
       try { schedulePublish(); } catch (e) { /* */ }
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify({
@@ -3557,7 +3735,7 @@
         // Eligible for automatic assignment ONLY if:
         // 1) Strictly same family (نفس الأسرة فقط)
         // 2) Has 0 substitutions today (لا يتعدى حصة واحدة للمعلمة البديلة)
-        const eligibleForAuto = sameDept && (dailySubCount === 0);
+        const eligibleForAuto = sameDept && (dailySubCount < SUB_CAP);
 
         // العدالة أولاً: نفس الأسرة، ثم الأقل رصيداً تراكمياً من الاحتياط، ثم الأقل عبئاً دراسياً اليوم،
         // وعند التساوي التام تُقدَّم من لم تأخذ احتياطاً منذ أطول مدة (تناوب عادل بدل ترتيب القائمة).
@@ -3571,6 +3749,7 @@
         const last = FAIR_AUTO ? getLastSubDate(member) : "";
         const lastDays = last ? Math.max(0, Math.round((new Date((state.selectedDate || last) + "T12:00:00") - new Date(last + "T12:00:00")) / 86400000)) : 365;
         priorityScore -= Math.min(lastDays, 365) * 0.01;
+        priorityScore += dailySubCount * 40;
         // ردّ الغياب: المعلمة التي غابت سابقاً ولم تأخذ حصة احتياط بعدها تُقدَّم على غيرها في أسرتها
         const debt = getAbsenceDebt(member);
         if (FAIR_AUTO && debt > 0 && eligibleForAuto) priorityScore -= 500 + debt * 5;
@@ -3599,6 +3778,7 @@
         if (!silent) showToast("يرجى تحديد معلمة غائبة واحدة على الأقل", "error");
         return;
       }
+      try { audit(`تسجيل غياب ${uniqueIds.length} معلمة ليوم ${state.selectedDate}: ` + uniqueIds.map(id => (state.staff.find(x => x.id === id) || {}).name).join("، ")); } catch (e) { /* */ }
 
       let totalTeachersAdded = 0;
       let totalSlotsCreated = 0;
@@ -3697,6 +3877,7 @@
         }
         if (slot.assignmentMode !== "manual") {
           slot.substituteTeacherId = "";
+          slot.extra = false;
         }
       });
 
@@ -3708,30 +3889,42 @@
       // في حصة لها بدائل كثيرة، وبذلك يتحقق أعلى قدر من التساوي في الأرصدة.
       daySlots.forEach(slot => { if (slot.substituteTeacherId) assignedCount++; });
       let pending = daySlots.filter(slot => !slot.substituteTeacherId);
-      while (pending.length) {
-        let pick = null;
-        pending.forEach(slot => {
-          const cands = getAvailableCandidatesForSlot(slot).filter(c => c.eligibleForAuto);
-          const info = { slot, cands };
-          if (!pick || cands.length < pick.cands.length || (cands.length === pick.cands.length && Number(slot.period) < Number(pick.slot.period))) pick = info;
-        });
-        pending = pending.filter(sl => sl !== pick.slot);
-        if (pick.cands.length > 0) {
-          pick.slot.substituteTeacherId = pick.cands[0].member.id;
-          pick.slot.assignmentMode = "auto";
-          pick.slot.repay = pick.cands[0].debt > 0;
-          invalidateCaches();
-          assignedCount++;
-        } else {
-          skippedNoFamilyCount++;
+      let extraCount = 0;
+      // الحالات القصوى: إذا لم تتبقَّ معلمة متفرغة بلا احتياط تُعطى الحصة لمن أخذت حصة واحدة (حتى الحد الأقصى المحدّد)
+      for (let cap = 1; cap <= MAX_SUBS && pending.length; cap++) {
+        SUB_CAP = cap;
+        const stuck = [];
+        while (pending.length) {
+          let pick = null;
+          pending.forEach(slot => {
+            const cands = getAvailableCandidatesForSlot(slot).filter(c => c.eligibleForAuto);
+            const info = { slot, cands };
+            if (!pick || cands.length < pick.cands.length || (cands.length === pick.cands.length && Number(slot.period) < Number(pick.slot.period))) pick = info;
+          });
+          pending = pending.filter(sl => sl !== pick.slot);
+          if (pick.cands.length > 0) {
+            pick.slot.substituteTeacherId = pick.cands[0].member.id;
+            pick.slot.assignmentMode = "auto";
+            pick.slot.repay = pick.cands[0].debt > 0;
+            pick.slot.extra = cap > 1;
+            if (cap > 1) extraCount++;
+            invalidateCaches();
+            assignedCount++;
+          } else {
+            stuck.push(pick.slot);
+          }
         }
+        pending = stuck;
       }
+      SUB_CAP = 1;
+      skippedNoFamilyCount = pending.length;
 
+      if (!silent) audit(`توزيع احتياط تلقائي: ${assignedCount} حصة (${skippedNoFamilyCount} بلا بديلة) ليوم ${state.selectedDate}`);
       saveState();
       renderAll();
       if (!silent) {
         if (assignedCount > 0 && skippedNoFamilyCount === 0) {
-          showToast(`تم توزيع ${assignedCount} حصة تلقائياً من نفس الأسرة فقط (حصة واحدة كحد أقصى لكل معلمة بديلة)`);
+          showToast(extraCount ? `تم توزيع ${assignedCount} حصة من نفس الأسرة — منها ${extraCount} حصة إضافية (حالة قصوى: بديلة بحصتين)` : `تم توزيع ${assignedCount} حصة تلقائياً من نفس الأسرة فقط (حصة واحدة لكل معلمة بديلة)`);
         } else if (assignedCount > 0 && skippedNoFamilyCount > 0) {
           showToast(`تم توزيع ${assignedCount} حصة من نفس الأسرة، وتبقت ${skippedNoFamilyCount} حصة يمكنكِ اختيار موظف آخر لها يدوياً`, "info");
         } else if (skippedNoFamilyCount > 0) {
@@ -3762,8 +3955,10 @@
       updateFairBadge();
     }
     function updateFairBadge() {
+      try { updateConflictBar(); } catch (e) { /* */ }
       const el = document.getElementById("fairBadge"), tg = document.getElementById("fairAutoToggle");
       if (tg) tg.checked = FAIR_AUTO;
+      const ms = document.getElementById("maxSubsSel"); if (ms) ms.value = String(MAX_SUBS);
       if (!el) return;
       if (!FAIR_AUTO) { el.textContent = "العدالة التلقائية متوقفة"; el.className = "px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-600"; return; }
       let data = [];
@@ -4020,7 +4215,7 @@
               <td class="border border-slate-800 p-2 font-extrabold text-center">الحصة ${slot.period}</td>
               <td class="border border-slate-800 p-2 font-extrabold text-center">صف ${slot.className}</td>
               <td class="border border-slate-800 p-2 font-bold">${absentT ? absentT.name : "—"}</td>
-              <td class="border border-slate-800 p-2 font-extrabold">${subT ? subT.name : "غير محدد"}</td>
+              <td class="border border-slate-800 p-2 font-extrabold">${subT ? subT.name : "غير محدد"}${slot.extra ? " <span style='font-size:10px;font-weight:700'>(حصة إضافية)</span>" : ""}</td>
               <td class="border border-slate-800 p-2" style="height:34px"></td>
             </tr>
           `;
@@ -4178,7 +4373,7 @@
         if (subT) {
           const isSameFamily = absentT && sameFamily(subT.dept, absentT.dept);
           if (isSameFamily && slot.assignmentMode !== "manual") {
-            matchBadge = `<span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold text-[11px] border border-emerald-200">✓ تلقائي • نفس الأسرة (حصة 1)</span>` + (slot.repay ? ` <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200">↩ ردّ غياب سابق</span>` : "");
+            matchBadge = (slot.extra ? `<span class="px-2.5 py-1 rounded-full bg-orange-50 text-orange-800 font-bold text-[11px] border border-orange-300">⚠ حصة إضافية (حالة قصوى)</span>` : `<span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold text-[11px] border border-emerald-200">✓ تلقائي • نفس الأسرة (حصة 1)</span>`) + (slot.repay ? ` <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200">↩ ردّ غياب سابق</span>` : "");
           } else if (isSameFamily && slot.assignmentMode === "manual") {
             matchBadge = `<span class="px-2.5 py-1 rounded-full bg-teal-50 text-teal-800 font-bold text-[11px] border border-teal-200">تحديد يدوي • نفس الأسرة</span>`;
           } else {
@@ -6351,9 +6546,12 @@
           const slotId = e.target.getAttribute("data-sub-slot-id");
           const slot = state.substitutions.find(s => s.id === slotId);
           if (slot) {
+            const oldT = state.staff.find(s => s.id === slot.substituteTeacherId);
             slot.substituteTeacherId = e.target.value;
             slot.assignmentMode = "manual";
+            slot.extra = false;
             const subT = state.staff.find(s => s.id === e.target.value);
+            audit(`تغيير بديلة الحصة ${slot.period} (${state.selectedDate}) من ${oldT ? oldT.name : "—"} إلى ${subT ? subT.name : "—"}`);
             saveState();
             renderAll();
             if (subT) showToast(`تم التغيير اليدوي وتكليف (${subT.name} — ${getDeptObj(subT.dept).shortName}) بحصة الاحتياط`);
@@ -6392,6 +6590,7 @@
         if (delBtn) {
           const slotId = delBtn.getAttribute("data-delete-slot");
           state.substitutions = state.substitutions.filter(s => s.id !== slotId);
+          audit(`حذف حصة احتياط (${state.selectedDate})`);
           saveState();
           renderAll();
           showToast("تم حذف حصة الاحتياط");
@@ -6411,7 +6610,9 @@
         if (slot && chosenId) {
           slot.substituteTeacherId = chosenId;
           slot.assignmentMode = "manual";
+          slot.extra = false;
           const subT = state.staff.find(s => s.id === chosenId);
+          audit(`تكليف يدوي لمعلمة من أسرة أخرى: ${subT ? subT.name : ""} (الحصة ${slot.period}، ${state.selectedDate})`);
           saveState();
           renderAll();
           document.getElementById("manualOtherStaffModal").classList.add("hidden");
@@ -6616,6 +6817,8 @@
             setMemberQuotaAndSyncSchedule(existing, quota);
             existing.subCount = subCount;
             existing.noSub = noSub;
+            audit(`تحديث بيانات الكادر: ${name}`);
+            audit(`تعديل بيانات المعلمة ${name}`);
             showToast(`تم تحديث بيانات (${name}) بنجاح`);
           }
         } else {
