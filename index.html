@@ -2464,6 +2464,30 @@
     const K_TIMES_IMG = "khawla_times_img_v1";
     function esc2(t) { return String(t == null ? "" : t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+    function quickEditBtn(m) {
+      if (!m || !can("editStaff") || !inMyScope(m)) return "";
+      return ` <button type="button" data-quick-edit="${m.id}" class="mr-1 px-1.5 py-0.5 rounded-lg bg-slate-100 hover:bg-teal-100 text-[11px] font-bold" title="تعديل الاسم ورقم الواتساب">✎ ${normalizePhone(m.phone) ? "" : "<span style='color:#b45309'>أضيفي واتساب</span>"}</button>`;
+    }
+    function openQuickEdit(id) {
+      const m = state.staff.find(x => x.id === id);
+      if (!m || !can("editStaff") || !inMyScope(m)) return;
+      const w = xModal(`<h3 style="font-weight:800;margin-bottom:10px">تعديل بيانات المعلمة</h3>
+        <label style="font-size:12px;font-weight:700">الاسم</label>
+        <input id="qeName" value="${esc2(m.name)}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;margin:4px 0 10px;font-weight:700">
+        <label style="font-size:12px;font-weight:700">رقم الواتساب (8 أرقام أو مع 968)</label>
+        <input id="qePhone" dir="ltr" value="${esc2(m.phone || "")}" placeholder="9xxxxxxx" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;margin:4px 0 14px;font-weight:700">
+        <div style="display:flex;gap:8px"><button type="button" id="qeSave" style="background:#0f766e;color:#fff;font-weight:800;border-radius:10px;padding:8px 18px;border:0;cursor:pointer">حفظ</button>
+        <button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:10px;padding:8px 18px;border:0;cursor:pointer">إلغاء</button></div>`);
+      w.querySelector("#qeSave").addEventListener("click", () => {
+        const nm = clean(w.querySelector("#qeName").value), ph = clean(w.querySelector("#qePhone").value);
+        if (!nm) return;
+        m.name = nm;
+        if (m.phone !== ph) m.phoneSrc = "manual";
+        m.phone = ph;
+        invalidateCaches(); saveState(); renderAll(); w.remove();
+        showToast(`تم تحديث بيانات (${nm})`);
+      });
+    }
     function xModal(html) {
       const w = document.createElement("div");
       w.setAttribute("dir", "rtl");
@@ -3238,7 +3262,7 @@
     // ==================== التهيئة ====================
     function initAuth() {
       const st = document.createElement("style");
-      st.textContent = `body[data-role="familyLead"] [data-edit-staff], body[data-role="familyLead"] [data-delete-staff], body[data-role="assistant"] [data-delete-staff], body[data-role="reserveAll"] [data-delete-staff]{display:none!important}`;
+      st.textContent = `body[data-role="familyLead"] [data-delete-staff], body[data-role="assistant"] [data-delete-staff], body[data-role="reserveAll"] [data-delete-staff]{display:none!important}`;
       document.head.appendChild(st);
       AUTH.users = lsGet(K_ACC, []);
       const ctl = {
@@ -3997,7 +4021,6 @@
               <td class="border border-slate-800 p-2 font-extrabold text-center">صف ${slot.className}</td>
               <td class="border border-slate-800 p-2 font-bold">${absentT ? absentT.name : "—"}</td>
               <td class="border border-slate-800 p-2 font-extrabold">${subT ? subT.name : "غير محدد"}</td>
-              <td class="border border-slate-800 p-2 text-xs text-center">${modeLabel}</td>
               <td class="border border-slate-800 p-2" style="height:34px"></td>
             </tr>
           `;
@@ -4031,7 +4054,6 @@
                   <th class="border border-slate-800 p-2 text-center">الصف</th>
                   <th class="border border-slate-800 p-2">المعلمة الغائبة</th>
                   <th class="border border-slate-800 p-2">المعلمة البديلة المكلفة</th>
-                  <th class="border border-slate-800 p-2 text-center">نوع التكليف</th>
                   <th class="border border-slate-800 p-2 text-center min-w-[110px]">التوقيع بالعلم</th>
                 </tr>
               </thead>
@@ -4170,7 +4192,7 @@
             <td class="py-3 px-3">
               <span class="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-900 font-extrabold text-xs">صف ${slot.className}</span>
             </td>
-            <td class="py-3 px-3 font-bold text-slate-900">${absentT ? absentT.name : "—"}</td>
+            <td class="py-3 px-3 font-bold text-slate-900">${absentT ? absentT.name + quickEditBtn(absentT) : "—"}</td>
             <td class="py-3 px-3">
               <span class="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs">${absentDept.shortName}</span>
             </td>
@@ -4184,7 +4206,7 @@
                 </button>
               </div>
             </td>
-            <td class="py-3 px-3">${matchBadge}${subT ? `<button type="button" data-toggle-nosub="${subT.id}" class="mr-1.5 px-2 py-0.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 border border-rose-200 font-bold text-[11px] transition" title="إقصاء ${subT.name} من الاحتياط وإعادة توزيع حصتها">🚫 إقصاء البديلة</button>` : ""}</td>
+            <td class="py-3 px-3">${matchBadge}${subT ? quickEditBtn(subT) : ""}${subT ? `<button type="button" data-toggle-nosub="${subT.id}" class="mr-1.5 px-2 py-0.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 border border-rose-200 font-bold text-[11px] transition" title="إقصاء ${subT.name} من الاحتياط وإعادة توزيع حصتها">🚫 إقصاء البديلة</button>` : ""}</td>
             <td class="py-3 px-3 text-center">
               <div class="flex items-center justify-center gap-1">
                 <button type="button" data-whatsapp-slot="${slot.id}" class="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] whitespace-nowrap" title="إرسال إشعار الاحتياط للمعلمة عبر واتساب">📲 واتساب</button>
@@ -6340,6 +6362,8 @@
       });
 
       document.getElementById("substitutionTableBody").addEventListener("click", (e) => {
+        const qe = e.target.closest("[data-quick-edit]");
+        if (qe) { openQuickEdit(qe.getAttribute("data-quick-edit")); return; }
         const manualOtherBtn = e.target.closest("[data-open-manual-other]");
         if (manualOtherBtn) {
           openManualOtherModal(manualOtherBtn.getAttribute("data-open-manual-other"));
@@ -6514,7 +6538,7 @@
         const editBtn = e.target.closest("[data-edit-staff]");
         if (editBtn) {
           const m = state.staff.find(s => s.id === editBtn.getAttribute("data-edit-staff"));
-          if (m) openStaffModal(m);
+          if (m && inMyScope(m)) openStaffModal(m); else if (m) showToast("يمكنك تعديل معلمات أسرتك فقط", "error");
           return;
         }
 
