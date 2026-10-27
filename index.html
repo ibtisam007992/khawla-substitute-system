@@ -367,6 +367,7 @@
             <svg class="w-4 h-4 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span>توزيع تلقائي ذكي حسب كل أسرة</span>
           </button>
+          <button type="button" data-x-act="fairness" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm">⚖ عدالة توزيع الاحتياط</button>
           <button id="btnOpenFamilyPrintModal" type="button" class="px-3.5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
             <svg class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
             <span>طباعة جدول الاحتياط لكل أسرة</span>
@@ -1451,18 +1452,27 @@
     }
 
     // ==================== رصيد الاحتياط التراكمي (يُحسب من السجل — لا يتضخم بالتعديل اليدوي) ====================
-    let BALANCE_CACHE = null;
-    function invalidateCaches() { BALANCE_CACHE = null; }
+    let BALANCE_CACHE = null, LAST_SUB_CACHE = null;
+    function invalidateCaches() { BALANCE_CACHE = null; LAST_SUB_CACHE = null; }
+    function buildBalanceCaches() {
+      BALANCE_CACHE = new Map(); LAST_SUB_CACHE = new Map();
+      const add = (s, date) => {
+        if (s && s.substituteTeacherId) {
+          BALANCE_CACHE.set(s.substituteTeacherId, (BALANCE_CACHE.get(s.substituteTeacherId) || 0) + 1);
+          if (date && (!LAST_SUB_CACHE.get(s.substituteTeacherId) || date > LAST_SUB_CACHE.get(s.substituteTeacherId))) LAST_SUB_CACHE.set(s.substituteTeacherId, date);
+        }
+      };
+      state.substitutions.forEach(s => add(s, state.selectedDate || ""));
+      Object.keys(state.byDate || {}).forEach(dt => { const d = state.byDate[dt]; ((d && d.substitutions) || []).forEach(s => add(s, dt)); });
+    }
     function getSubBalance(member) {
-      if (!BALANCE_CACHE) {
-        BALANCE_CACHE = new Map();
-        const add = (s) => {
-          if (s && s.substituteTeacherId) BALANCE_CACHE.set(s.substituteTeacherId, (BALANCE_CACHE.get(s.substituteTeacherId) || 0) + 1);
-        };
-        state.substitutions.forEach(add);
-        Object.values(state.byDate || {}).forEach(d => ((d && d.substitutions) || []).forEach(add));
-      }
+      if (!BALANCE_CACHE) buildBalanceCaches();
       return (member.subCount || 0) + (BALANCE_CACHE.get(member.id) || 0);
+    }
+    // آخر تاريخ أخذت فيه المعلمة احتياطاً (للتناوب: من لم تأخذ منذ أطول مدة تُقدَّم عند التساوي)
+    function getLastSubDate(member) {
+      if (!LAST_SUB_CACHE) buildBalanceCaches();
+      return LAST_SUB_CACHE.get(member.id) || "";
     }
 
     // ==================== العمل بحسب التاريخ (كل تاريخ له غيابه وتوزيعه المستقل) ====================
@@ -2533,6 +2543,36 @@
       };
     }
 
+
+    // --- تقرير عدالة توزيع الاحتياط ---
+    function fairnessData() {
+      const eligible = (m) => !m.noSub && m.role !== "مديرة المدرسة" && m.role !== "مساعدة المديرة" && m.dept !== "specialists" && countMemberScheduledPeriods(m) > 0;
+      invalidateCaches();
+      return DEPARTMENTS.filter(d => !d.virtual && d.id !== "specialists").map(d => {
+        const ms = state.staff.filter(m => m.dept === d.id && eligible(m)).map(m => ({ m, n: getSubBalance(m), q: countMemberScheduledPeriods(m) })).sort((a, b) => a.n - b.n || a.q - b.q);
+        const ns = ms.map(x => x.n);
+        return { d, ms, min: ns.length ? Math.min(...ns) : 0, max: ns.length ? Math.max(...ns) : 0, avg: ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : 0 };
+      }).filter(x => x.ms.length);
+    }
+    function showFairness() {
+      const data = fairnessData();
+      const rowsHtml = data.map(f => {
+        const spread = f.max - f.min;
+        const ok = spread <= 1;
+        const top = Math.max(1, f.max);
+        return `<div style="border:1px solid #e2e8f0;border-radius:12px;padding:10px;margin:8px 0">
+          <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800"><span>${esc2(f.d.name)}</span>
+          <span style="color:${ok ? "#047857" : "#b45309"}">${ok ? "✓ توزيع متوازن" : "⚠ الفارق " + spread + " — تُقدَّم الأقل رصيدًا"}</span></div>
+          <div style="font-size:11px;color:#64748b;margin:2px 0 6px">الأقل ${f.min} • الأعلى ${f.max} • المتوسط ${f.avg.toFixed(1)} حصة</div>
+          ${f.ms.map(x => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0"><span style="width:200px;flex-shrink:0">${esc2(x.m.name)} <span style="color:#94a3b8">(نصاب ${x.q})</span></span><div style="flex:1;background:#f1f5f9;border-radius:6px;height:10px"><div style="width:${Math.round(x.n / top * 100)}%;background:${x.n === f.min ? "#10b981" : x.n === f.max && spread > 1 ? "#f59e0b" : "#0f766e"};height:10px;border-radius:6px"></div></div><b style="width:24px;text-align:left">${x.n}</b></div>`).join("")}
+        </div>`;
+      }).join("") || '<p style="font-size:13px;color:#64748b">لا توجد بيانات كافية بعد.</p>';
+      xModal(`<h3 style="font-weight:900;color:#b45309;font-size:17px">⚖ عدالة توزيع حصص الاحتياط</h3>
+        <p style="font-size:12px;color:#475569;margin:6px 0;line-height:1.7">عدد الحصص التي أخذتها كل معلمة تراكميًا (الرصيد الافتتاحي + كل الأيام المسجلة). يعتمد التوزيع التلقائي القواعد التالية بالترتيب: <b>نفس الأسرة</b> ← <b>الأقل رصيدًا تراكميًا</b> ← الأقل عبئًا دراسيًا في اليوم ← عند التساوي <b>من لم تأخذ احتياطًا منذ أطول مدة</b>. ولا تأخذ المعلمة أكثر من حصة واحدة في اليوم تلقائيًا.</p>
+        ${rowsHtml}
+        <div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 18px;border:0;cursor:pointer">إغلاق</button></div>`);
+    }
+
     // --- فتح واتساب (تطبيق / ويب / تلقائي) ---
     function openWhatsApp(phone, text) {
       const ph = normalizePhone(phone || "");
@@ -2621,6 +2661,7 @@
 
     function xAction(act) {
       if (act === "famAccounts") { if (can("accounts")) createFamilyAccounts(); }
+      else if (act === "fairness") showFairness();
       else if (act === "clearSchedule") clearImportedSchedule();
       else if (act === "clearStaff") clearImportedSchedule(true);
       else if (act === "waGroup") openWhatsApp("", broadcastMessage());
@@ -3462,14 +3503,18 @@
         // 2) Has 0 substitutions today (لا يتعدى حصة واحدة للمعلمة البديلة)
         const eligibleForAuto = sameDept && (dailySubCount === 0);
 
-        let priorityScore = 100;
-        if (eligibleForAuto && sameSubDept) priorityScore = 5;
-        else if (eligibleForAuto) priorityScore = 15;
-        else if (sameDept) priorityScore = 40;
-        else if (member.dept !== "specialists") priorityScore = 60;
-        else priorityScore = 75;
-
-        priorityScore += dailyLoad * 2 + getSubBalance(member) * 3;
+        // العدالة أولاً: نفس الأسرة، ثم الأقل رصيداً تراكمياً من الاحتياط، ثم الأقل عبئاً دراسياً اليوم،
+        // وعند التساوي التام تُقدَّم من لم تأخذ احتياطاً منذ أطول مدة (تناوب عادل بدل ترتيب القائمة).
+        let tier = 3000;
+        if (eligibleForAuto) tier = 0;
+        else if (sameDept) tier = 1000;
+        else if (member.dept !== "specialists") tier = 2000;
+        const balance = getSubBalance(member);
+        const quota = countMemberScheduledPeriods(member);
+        let priorityScore = tier + balance * 10 + dailyLoad * 1.5 + quota * 0.2 - (sameSubDept ? 3 : 0);
+        const last = getLastSubDate(member);
+        const lastDays = last ? Math.max(0, Math.round((new Date((state.selectedDate || last) + "T12:00:00") - new Date(last + "T12:00:00")) / 86400000)) : 365;
+        priorityScore -= Math.min(lastDays, 365) * 0.01;
 
         candidates.push({
           member,
@@ -3599,24 +3644,27 @@
       let assignedCount = 0;
       let skippedNoFamilyCount = 0;
 
-      daySlots.forEach(slot => {
-        if (slot.substituteTeacherId) {
-          assignedCount++;
-          return;
-        }
-        const candidates = getAvailableCandidatesForSlot(slot);
-        const strictFamilyCandidates = candidates.filter(c => c.eligibleForAuto);
-
-        if (strictFamilyCandidates.length > 0) {
-          const chosen = strictFamilyCandidates[0].member;
-          slot.substituteTeacherId = chosen.id;
+      // الأكثر ندرة أولاً: نوزّع أولاً الحصة التي لها أقل عدد من المعلمات المتاحات حتى لا تُستهلك المعلمة النادرة التفرغ
+      // في حصة لها بدائل كثيرة، وبذلك يتحقق أعلى قدر من التساوي في الأرصدة.
+      daySlots.forEach(slot => { if (slot.substituteTeacherId) assignedCount++; });
+      let pending = daySlots.filter(slot => !slot.substituteTeacherId);
+      while (pending.length) {
+        let pick = null;
+        pending.forEach(slot => {
+          const cands = getAvailableCandidatesForSlot(slot).filter(c => c.eligibleForAuto);
+          const info = { slot, cands };
+          if (!pick || cands.length < pick.cands.length || (cands.length === pick.cands.length && Number(slot.period) < Number(pick.slot.period))) pick = info;
+        });
+        pending = pending.filter(sl => sl !== pick.slot);
+        if (pick.cands.length > 0) {
+          pick.slot.substituteTeacherId = pick.cands[0].member.id;
+          pick.slot.assignmentMode = "auto";
           invalidateCaches();
-          slot.assignmentMode = "auto";
           assignedCount++;
         } else {
           skippedNoFamilyCount++;
         }
-      });
+      }
 
       saveState();
       renderAll();
