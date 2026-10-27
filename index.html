@@ -337,6 +337,11 @@
 
     <!-- ==================== TAB 1: DAILY SUBSTITUTION ==================== -->
     <section id="tab-daily" class="tab-panel space-y-6">
+      <div id="stepsStrip" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-extrabold">
+        <div class="rounded-2xl bg-teal-50 border border-teal-200 text-teal-900 p-3"><span class="inline-flex w-6 h-6 items-center justify-center rounded-full bg-teal-700 text-white ml-1.5">1</span>اختاري اليوم وحدّدي المعلمات الغائبات ✓</div>
+        <div class="rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 p-3"><span class="inline-flex w-6 h-6 items-center justify-center rounded-full bg-indigo-700 text-white ml-1.5">2</span>يوزَّع الاحتياط تلقائياً وبعدالة — راجعي الجدول وعدّلي إن لزم</div>
+        <div class="rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 p-3"><span class="inline-flex w-6 h-6 items-center justify-center rounded-full bg-emerald-700 text-white ml-1.5">3</span>أرسلي الواتساب للمكلّفات واطبعي الكشف</div>
+      </div>
       <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div class="flex flex-wrap items-center gap-3">
           <div>
@@ -362,29 +367,36 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <button id="btnLoadDemoAbsence" type="button" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition">
-            تجربة مثال غياب يومي
-          </button>
+        <div class="flex flex-col gap-3 w-full lg:w-auto">
+          <div class="flex flex-wrap items-center gap-2">
           <button id="btnAutoAssignAll" type="button" class="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
             <svg class="w-4 h-4 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span>توزيع تلقائي ذكي حسب كل أسرة</span>
           </button>
-          <button type="button" data-x-act="fairness" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm">⚖ عدالة توزيع الاحتياط</button>
-          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-900 cursor-pointer"><input id="fairAutoToggle" type="checkbox" class="accent-amber-600" checked /> العدالة التلقائية</label>
-          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 text-[11px] font-bold text-orange-900" title="عند كثرة الغياب تأخذ البديلة أكثر من حصة فقط إذا لم تتبقَّ معلمة متفرغة">أقصى حصص للبديلة يومياً <select id="maxSubsSel" class="rounded-lg border border-orange-300 bg-white px-1 font-extrabold"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-          <span id="fairBadge" class="px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-700"></span>
           <button id="btnOpenFamilyPrintModal" type="button" class="px-3.5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
             <svg class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
             <span>طباعة جدول الاحتياط لكل أسرة</span>
           </button>
           <button type="button" data-x-act="waQueue" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">📲 إرسال واتساب لجميع المكلّفات</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+          <span id="fairBadge" class="px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-700"></span>
+          <span id="conflictBar" data-x-act="conflicts" class="hidden"></span>
+          </div>
+          <details id="moreTools" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><summary class="cursor-pointer text-xs font-extrabold text-slate-700 select-none">⚙ أدوات إضافية (العدالة، التقارير، السجل، النسخ الاحتياطية…)</summary><div class="flex flex-wrap items-center gap-2 mt-2">
+          <button id="btnLoadDemoAbsence" type="button" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition">
+            تجربة مثال غياب يومي
+          </button>
+          <button type="button" data-x-act="fairness" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm">⚖ عدالة توزيع الاحتياط</button>
+          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-900 cursor-pointer"><input id="fairAutoToggle" type="checkbox" class="accent-amber-600" checked /> العدالة التلقائية</label>
+          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 text-[11px] font-bold text-orange-900" title="عند كثرة الغياب تأخذ البديلة أكثر من حصة فقط إذا لم تتبقَّ معلمة متفرغة">أقصى حصص للبديلة يومياً <select id="maxSubsSel" class="rounded-lg border border-orange-300 bg-white px-1 font-extrabold"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
           <button type="button" data-x-act="report" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">📊 تقرير الاحتياط</button>
           <button type="button" data-x-act="auditLog" class="px-3.5 py-2 rounded-xl bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs">🕘 سجل التعديلات</button>
           <button type="button" data-x-act="backups" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold text-xs">🛡 النسخ التلقائية</button>
-          <span id="conflictBar" data-x-act="conflicts" class="hidden"></span>
           <button id="btnClearDaily" type="button" class="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs sm:text-sm border border-rose-200 transition">
             تصفير جدول اليوم
           </button>
+          </div></details>
         </div>
       </div>
 
@@ -3487,6 +3499,7 @@
       document.querySelector('[data-tour="prev"]').style.visibility = TOUR.i === 0 ? "hidden" : "visible";
       setTimeout(() => {
         const el = s.sel ? document.querySelector(s.sel) : null;
+        if (el) { const dt = el.closest("details"); if (dt && !dt.open) dt.open = true; }
         if (el && el.offsetParent !== null) el.scrollIntoView({ block: "center", behavior: "instant" });
         tourPlace();
       }, 150);
