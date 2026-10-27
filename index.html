@@ -368,6 +368,8 @@
             <span>توزيع تلقائي ذكي حسب كل أسرة</span>
           </button>
           <button type="button" data-x-act="fairness" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm">⚖ عدالة توزيع الاحتياط</button>
+          <label class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-900 cursor-pointer"><input id="fairAutoToggle" type="checkbox" class="accent-amber-600" checked /> العدالة التلقائية</label>
+          <span id="fairBadge" class="px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-700"></span>
           <button id="btnOpenFamilyPrintModal" type="button" class="px-3.5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
             <svg class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
             <span>طباعة جدول الاحتياط لكل أسرة</span>
@@ -1452,6 +1454,8 @@
     }
 
     // ==================== رصيد الاحتياط التراكمي (يُحسب من السجل — لا يتضخم بالتعديل اليدوي) ====================
+    let FAIR_AUTO = true;
+    try { FAIR_AUTO = localStorage.getItem("khawla_fair_auto") !== "0"; } catch (e) { /* */ }
     let BALANCE_CACHE = null, LAST_SUB_CACHE = null, DEBT_CACHE = null;
     function invalidateCaches() { BALANCE_CACHE = null; LAST_SUB_CACHE = null; DEBT_CACHE = null; }
     // «ردّ الغياب»: كل يوم غابت فيه المعلمة (سابق ليوم العمل الحالي) يترتب عليها حصة احتياط تأخذها لاحقاً، وتُسدَّد بأول حصة احتياط تأخذها
@@ -2701,6 +2705,11 @@
     document.addEventListener("change", e => {
       const t = e.target;
       if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
+      if (t.id === "fairAutoToggle") {
+        FAIR_AUTO = t.checked; try { localStorage.setItem("khawla_fair_auto", FAIR_AUTO ? "1" : "0"); } catch (e) { /* */ }
+        invalidateCaches(); autoAssignSubstitutionsForDay(state.selectedDay, true);
+        showToast(FAIR_AUTO ? "فُعِّلت العدالة التلقائية وأُعيد توزيع حصص اليوم" : "أُوقفت العدالة التلقائية"); return;
+      }
       if (t.id === "waMode") { NOTIFY.waMode = t.value; saveNotify(); return; }
       if (t.id === "timesImgInput") { importTimesImage(t.files[0]); t.value = ""; }
       else if (t.hasAttribute && t.hasAttribute("data-time-start")) { NOTIFY.times[Number(t.getAttribute("data-time-start"))] = t.value; saveNotify(); renderNotify(); }
@@ -3534,13 +3543,13 @@
         else if (member.dept !== "specialists") tier = 2000;
         const balance = getSubBalance(member);
         const quota = countMemberScheduledPeriods(member);
-        let priorityScore = tier + balance * 10 + dailyLoad * 1.5 + quota * 0.2 - (sameSubDept ? 3 : 0);
-        const last = getLastSubDate(member);
+        let priorityScore = FAIR_AUTO ? tier + balance * 10 + dailyLoad * 1.5 + quota * 0.2 - (sameSubDept ? 3 : 0) : tier + dailyLoad * 2 + (sameSubDept ? 0 : 5);
+        const last = FAIR_AUTO ? getLastSubDate(member) : "";
         const lastDays = last ? Math.max(0, Math.round((new Date((state.selectedDate || last) + "T12:00:00") - new Date(last + "T12:00:00")) / 86400000)) : 365;
         priorityScore -= Math.min(lastDays, 365) * 0.01;
         // ردّ الغياب: المعلمة التي غابت سابقاً ولم تأخذ حصة احتياط بعدها تُقدَّم على غيرها في أسرتها
         const debt = getAbsenceDebt(member);
-        if (debt > 0 && eligibleForAuto) priorityScore -= 500 + debt * 5;
+        if (FAIR_AUTO && debt > 0 && eligibleForAuto) priorityScore -= 500 + debt * 5;
 
         candidates.push({
           member,
@@ -3726,6 +3735,20 @@
       document.getElementById("navBadgeDaily").textContent = daySubs.length;
       document.getElementById("kpiCoveredSlots").textContent = `${coveredSubs.length} / ${daySubs.length}`;
       document.getElementById("kpiPdfMatchRate").textContent = `${matchPct} / ${state.staff.length}`;
+      updateFairBadge();
+    }
+    function updateFairBadge() {
+      const el = document.getElementById("fairBadge"), tg = document.getElementById("fairAutoToggle");
+      if (tg) tg.checked = FAIR_AUTO;
+      if (!el) return;
+      if (!FAIR_AUTO) { el.textContent = "العدالة التلقائية متوقفة"; el.className = "px-3 py-2 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-600"; return; }
+      let data = [];
+      try { data = fairnessData(); } catch (e) { /* */ }
+      const worst = data.reduce((m, f) => Math.max(m, f.max - f.min), 0);
+      const total = data.reduce((a, f) => a + f.ms.reduce((x, y) => x + y.n, 0), 0);
+      if (!total) { el.textContent = "⚖ توزيع عادل تلقائي جاهز"; el.className = "px-3 py-2 rounded-xl text-[11px] font-extrabold bg-emerald-50 text-emerald-800"; return; }
+      el.textContent = worst <= 1 ? "⚖ التوزيع متوازن" : `⚖ أكبر فارق في الأرصدة: ${worst} حصة (يُعالَج تلقائياً بالتوزيعات القادمة)`;
+      el.className = "px-3 py-2 rounded-xl text-[11px] font-extrabold " + (worst <= 1 ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800");
     }
 
     function populateDepartmentSelects() {
