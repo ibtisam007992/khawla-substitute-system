@@ -594,7 +594,8 @@
             <button type="button" data-quick-role="أخصائية نفسية" class="quick-add-role-btn px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-bold text-xs transition">
               <span>+ أخصائية نفسية</span>
             </button>
-            <label class="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm" data-requires="import">📄 استيراد كادر من PDF<input id="staffPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" /></label>
+            <label class="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm" id="staffPdfImportLabel" data-requires="import">📄 استيراد كادر من PDF<input id="staffPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" /></label>
+            <label id="phoneXlsxLabel" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-sm" data-requires="editStaff">📞 استيراد أرقام الواتساب من Excel<input id="phoneXlsxInput" type="file" accept=".xlsx,.xls,.csv" class="hidden" /></label>
             <button type="button" data-x-act="clearStaff" data-requires="resetSchedule" class="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm">🗑 تصفير الكادر والأسر</button>
             <button type="button" data-quick-role="ممرضة صحة مدرسية" class="quick-add-role-btn px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-xs transition">
               <span>+ ممرضة مدرسية</span>
@@ -2878,6 +2879,61 @@
       });
     }
 
+    // ---- استيراد أرقام الهواتف من Excel ----
+    async function handlePhoneXlsx(file) {
+      if (!file || !can("editStaff")) return;
+      try {
+        if (!window.XLSX) throw new Error("تعذر تحميل مكتبة Excel");
+        const wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+        let rows = [];
+        wb.SheetNames.forEach(n => { window.XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "" }).forEach(r => rows.push(r)); });
+        const hi = rows.findIndex(r => r.some(c => /الاسم/.test(String(c))) && r.some(c => /هاتف|رقم|جوال|واتس|موبايل/.test(String(c))));
+        let nc = -1, pc = -1, from = 0;
+        if (hi >= 0) {
+          rows[hi].forEach((c, i) => { const t = String(c); if (nc < 0 && /الاسم/.test(t)) nc = i; if (pc < 0 && /هاتف|جوال|واتس|موبايل/.test(t)) pc = i; });
+          if (pc < 0) rows[hi].forEach((c, i) => { if (pc < 0 && /رقم/.test(String(c)) && i !== nc && !/^\s*م\s*$/.test(String(c))) pc = i; });
+          from = hi + 1;
+        }
+        const list = [];
+        rows.slice(from).forEach(r => {
+          let name = nc >= 0 ? String(r[nc] || "") : (r.find(c => /[\u0600-\u06FF]{3,}/.test(String(c))) || "");
+          let ph = pc >= 0 ? String(r[pc] || "") : (r.map(String).find(c => /\d{8,}/.test(c.replace(/\D/g, ""))) || "");
+          name = clean(name); ph = clean(ph).replace(/[^\d+]/g, "");
+          if (name && normalizePhone(ph)) list.push({ name, ph });
+        });
+        if (!list.length) { showToast("لم أجد أسماء وأرقاماً في الملف (تأكدي من وجود عمودي الاسم والهاتف)", "error"); return; }
+        const pool = state.staff.filter(m => inMyScope(m));
+        const used = new Set();
+        const match = list.map(it => {
+          let best = null, bs = 0;
+          pool.forEach(m => { const sc = scoreStaffForName(m, it.name); if (sc > bs) { bs = sc; best = m; } });
+          return { it, m: bs >= 35 ? best : null, sc: bs };
+        });
+        match.sort((a, b) => b.sc - a.sc).forEach(x => { if (x.m) { if (used.has(x.m.id)) x.m = null; else used.add(x.m.id); } });
+        const opts = (sel) => `<option value="">— لا تطبيق —</option>` + pool.map(m => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc2(m.name)}${normalizePhone(m.phone) ? " ✓" : ""}</option>`).join("");
+        const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">📞 معاينة أرقام الواتساب (${list.length} سطر)</h3>
+          <p style="font-size:12px;color:#475569;margin:4px 0">طُوبقت <b id="phOk">${match.filter(x => x.m).length}</b> من ${list.length}. راجعي المطابقة وغيّري أي سطر من القائمة. الأسطر غير المطابقة لا تُطبَّق.</p>
+          <label style="font-size:12px;font-weight:700"><input type="checkbox" id="phOver"> استبدال الأرقام الموجودة أيضاً</label>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px"><thead><tr style="background:#f1f5f9"><th style="padding:5px;text-align:right">في الملف</th><th>الرقم</th><th style="text-align:right">المعلمة في النظام</th></tr></thead><tbody>
+          ${match.map((x, i) => `<tr style="border-bottom:1px solid #e2e8f0;${x.m ? "" : "background:#fffbeb"}"><td style="padding:5px;font-weight:700">${esc2(x.it.name)}</td><td dir="ltr">${esc2(x.it.ph)}</td><td><select data-ph-i="${i}" style="max-width:230px;border:1px solid #cbd5e1;border-radius:8px;padding:3px">${opts(x.m ? x.m.id : "")}</select></td></tr>`).join("")}</tbody></table>
+          <div style="margin-top:10px;display:flex;gap:8px"><button type="button" id="phApply" style="background:#0f766e;color:#fff;font-weight:900;border-radius:12px;padding:8px 18px;border:0;cursor:pointer">تطبيق</button><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إلغاء</button></div>`);
+        w.querySelector("#phApply").onclick = () => {
+          const over = w.querySelector("#phOver").checked; let n = 0;
+          w.querySelectorAll("[data-ph-i]").forEach(sel => {
+            const id = sel.value; if (!id) return;
+            const m = state.staff.find(x => x.id === id), it = match[Number(sel.getAttribute("data-ph-i"))].it;
+            if (!m || (normalizePhone(m.phone) && !over)) return;
+            m.phone = it.ph; m.phoneSrc = "manual"; n++;
+          });
+          audit(`استيراد أرقام واتساب من Excel: ${n}`);
+          saveState(); renderAll(); w.remove();
+          const miss = state.staff.filter(m => inMyScope(m) && !normalizePhone(m.phone));
+          showToast(`أُضيف ${n} رقماً. ${miss.length ? "بلا رقم: " + miss.length + " معلمة" : "كل المعلمات لديهن أرقام"}`);
+          if (miss.length) xModal(`<h3 style="font-weight:900;color:#b45309;font-size:15px">معلمات بلا رقم واتساب (${miss.length})</h3><div style="font-size:12px;margin-top:6px">${miss.map(m => `<div style="padding:4px;border-bottom:1px solid #e2e8f0">${esc2(m.name)}</div>`).join("")}</div><div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+        };
+      } catch (e) { showToast("تعذّر قراءة الملف: " + clean(e.message), "error"); }
+    }
+
     function xAction(act) {
       if (act === "report") return showReport();
       if (act === "auditLog") return showAuditLog();
@@ -2900,6 +2956,7 @@
     });
     document.addEventListener("change", e => {
       const t = e.target;
+      if (t.id === "phoneXlsxInput") { handlePhoneXlsx(t.files[0]); t.value = ""; return; }
       if (t.id === "staffPdfInput") { handleStaffPdf(t.files[0]); t.value = ""; return; }
       if (t.id === "maxSubsSel") {
         MAX_SUBS = Number(t.value) || 2; try { localStorage.setItem("khawla_max_subs", String(MAX_SUBS)); } catch (e) { /* */ }
@@ -3332,22 +3389,36 @@
 
     // ==================== الجولة التوضيحية ====================
     const TOUR_STEPS = [
-      { title: "مرحباً بكِ في منظومة الاحتياط الذكي 👋", text: "جولة سريعة (دقيقتان) تعرّفكِ على أهم أدوات النظام. يمكنكِ إعادتها في أي وقت من زر «🎓 جولة» أعلى الصفحة." },
-      { sel: "#userChip", title: "حسابكِ وصلاحياتكِ", text: "يظهر هنا اسمكِ ودوركِ. منه تغيّرين كلمة المرور وتسجّلين الخروج وتصلين للدعم الفني. تظهر لكِ التبويبات التي تسمح بها صلاحياتكِ فقط." },
-      { sel: "nav[aria-label]", title: "التبويبات الرئيسية", text: "الاحتياط اليومي • الأقسام والكادر • استيراد الجدول • الجدول العام • إحصائيات الغياب • إشعارات المعلمات • الحسابات (للمسؤول الفني) • الدعم الفني." },
-      { tab: "daily", sel: "#dailyDateInput", title: "1) اختاري التاريخ", text: "يعمل النظام يوماً بيوم؛ لكل تاريخ غيابه وتوزيعه المستقل، ويُحفظ تلقائياً." },
-      { tab: "daily", sel: "#multiAbsenceChecklistContainer", title: "2) حددي المعلمات الغائبات", text: "ضعي علامة ✓ أمام كل معلمة غائبة؛ تُستخرج حصصها فوراً وتُوزَّع على المتفرغات من نفس الأسرة بحد أقصى حصة واحدة لكل بديلة." },
-      { tab: "daily", sel: "#absenceReasonSelect", title: "3) سبب الغياب", text: "اختاري السبب من القائمة أو اكتبيه بنفسكِ في الخانة التي تحتها؛ يظهر في التقارير والإحصائيات." },
-      { tab: "daily", sel: "#btnAutoAssignAll", title: "4) التوزيع التلقائي", text: "يعيد توزيع الحصص غير المغطاة بحسب الأسرة والفراغ والرصيد التراكمي للاحتياط. ويمكنكِ تغيير أي بديلة يدوياً من الجدول." },
-      { tab: "daily", sel: "#noSubPanel", title: "5) إقصاء معلمة من الاحتياط", text: "افتحي هذا القسم لإقصاء أي معلمة من أخذ الاحتياط (بسبب ظرف أو تكليف آخر). وفي جدول التوزيع زر «إقصاء البديلة» لسحب حصصها فوراً وإعادة توزيعها." },
-      { tab: "daily", sel: "#btnOpenFamilyPrintModal", title: "6) الطباعة", text: "اطبعي جدول الاحتياط لكل أسرة، أو الجدول الأسبوعي لأي معلمة، بترويسة رسمية وبدون تواقيع." },
-      { tab: "departments", sel: "#deptPillsContainer", need: "departments", title: "الأقسام والكادر", text: "تصفح الأسر (ومنها أسرة العلوم المركّبة) وعدّلي بيانات المعلمات وجداولهن وأرقام هواتفهن." },
-      { tab: "pdfmatch", sel: "#pdfDropZone", need: "pdfmatch", title: "استيراد الجدول العام", text: "اسحبي ملف الجدول (PDF أو Excel) هنا؛ يقرؤه النظام ويطابق الأسماء، ثم راجعي المطابقة صفاً بصف وصحّحي أي اختلاف." },
-      { tab: "stats", sel: "#statsDateInput", need: "stats", title: "إحصائيات الغياب", text: "اختاري يوماً أو أسبوعاً أو شهراً، وستجدين جداول تفصيلية لكل منها زر «تقرير» للطباعة." },
-      { tab: "notify", sel: "#notifySettings", need: "notify", title: "إشعارات المعلمات الصوتية", text: "فعّلي الصوت على الجهاز، وحدّدي أوقات الحصص ومدة التذكير؛ فتُسمَع تنبيهات تلقائية قبل الحصة. ولكل معلمة زر واتساب لإرسال الإشعار إلى هاتفها." },
-      { tab: "accounts", sel: "#accountsTable", need: "accounts", title: "إدارة الحسابات (المسؤول الفني)", text: "أنشئي حسابات مديرة المدرسة ومساعدتها ومسؤولات احتياطي الأسر، وعطّلي أو عدّلي أو أعيدي تعيين كلمات المرور، وراجعي سجل النشاط." },
-      { tab: "support", sel: "#supportForm", need: "support", title: "الدعم الفني", text: "أبلغي عن أي مشكلة مع معلومات تشخيصية تلقائية، وجرّبي «فحص النظام» و«الإصلاح التلقائي»، وخذي نسخة احتياطية دورية." },
-      { tab: "daily", title: "انتهت الجولة ✅", text: "بالتوفيق! إن واجهتِ أي مشكلة فتبويب «الدعم الفني» في خدمتكِ." }
+      { title: "مرحباً بكِ في منظومة الاحتياط الذكي 👋", text: "جولة تفصيلية (حوالي 5 دقائق) تشرح كل أداة بالترتيب الذي تحتاجينه في يوم العمل: الإعداد مرة واحدة، ثم الروتين اليومي، ثم التقارير والحماية. تستطيعين إعادتها من زر «🎓 جولة» أعلى الصفحة." },
+      { sel: "#userChip", title: "حسابكِ وصلاحياتكِ", text: "يظهر اسمكِ ودوركِ (مسؤول فني، مديرة، مساعدة، مسؤولة أسرة، أو مسؤولة احتياط جميع الأسر). منه تغيّرين كلمة المرور وتخرجين. مسؤولة الأسرة ترى معلمات أسرتها فقط، أما المديرة والمساعدة ومسؤولة جميع الأسر فترى الجميع." },
+      { sel: "nav[aria-label]", title: "التبويبات الرئيسية", text: "الاحتياط اليومي • الأقسام والكادر • استيراد الجدول • الجدول العام • إحصائيات الغياب • إشعارات المعلمات • الحسابات • الدعم الفني. تظهر لكِ التبويبات التي تسمح بها صلاحيتكِ فقط." },
+
+      { tab: "pdfmatch", sel: "#pdfDropZone", need: "pdfmatch", title: "أولاً (مرة واحدة): استيراد الجدول المدرسي", text: "اسحبي ملف جدول aSc بصيغة PDF. يقرأ النظام الخلايا المدمجة (الحصتين المتتاليتين) ويطابق الأسماء، ثم تظهر نافذة مراجعة قبل الاعتماد: صحّحي أي تخصص خاطئ من القائمة المنسدلة، وأبقي «مزامنة الأسرة» مفعّلة ليُضبط تخصص كل معلمة تلقائياً." },
+      { tab: "departments", sel: "#deptPillsContainer", need: "departments", title: "ثانياً: الأسر التعليمية", text: "تتوزع المعلمات على أسرهن (لغة عربية، إنجليزية، رياضيات، تربية إسلامية، علوم = فيزياء + كيمياء + أحياء، سياحة، اختصاصات). التوزيع التلقائي للاحتياط يتم داخل الأسرة نفسها أولاً." },
+      { tab: "departments", sel: "#staffPdfImportLabel", need: "departments", title: "استيراد كشف الكادر PDF", text: "يستورد الأسماء والمسميات وأرقام الهواتف من كشف الكادر، ويعرض معاينة بالمطابقات قبل الإضافة. مسموح للمسؤول الفني والمديرة والمساعدة ومسؤولات الاحتياط." },
+      { tab: "departments", sel: "#phoneXlsxLabel", need: "departments", title: "أرقام الواتساب من Excel", text: "ارفعي ملف Excel فيه عمودا الاسم والرقم؛ يطابق النظام الأسماء (حتى لو اختلف شكلها قليلاً) ويعرض معاينة تصحّحين فيها أي مطابقة، ويُظهر المعلمات اللواتي ما زلن بلا رقم." },
+      { tab: "departments", sel: "[data-x-act=\"clearStaff\"]", need: "departments", title: "تصفير الكادر والأسر", text: "عند بدء عام أو ترم جديد: يحذف الكادر والأسر ليُعاد الاستيراد من جديد. للمسؤول الفني والمديرة والمساعدة فقط، وبتأكيد قبل التنفيذ." },
+      { tab: "notify", sel: "#timesEditor", need: "notify", title: "أوقات الحصص", text: "حدّدي بداية كل حصة، أو ارفعي صورة جدول التوقيت لتبقى مرجعاً أمامكِ. تُستخدم الأوقات في الرسائل وفي التنبيهات الصوتية قبل الحصة." },
+      { tab: "accounts", sel: "#accountsTable", need: "accounts", title: "الحسابات والصلاحيات", text: "أنشئي حساب المديرة والمساعدة، وحسابات مسؤولات الاحتياط للأسر (يُربط كل حساب بمعلمة تختارينها) وحساب «مسؤولة احتياط جميع الأسر». زر «إنشاء حسابات الأسر» يجهّزها دفعة واحدة، وأسرة العلوم تضم الفيزياء والكيمياء والأحياء." },
+
+      { tab: "daily", sel: "#dailyDateInput", title: "الروتين اليومي (1): اختاري التاريخ", text: "كل يوم له غيابه وتوزيعه المستقل ويُحفظ تلقائياً. يمكنكِ الرجوع لأي يوم سابق للمراجعة أو الطباعة." },
+      { tab: "daily", sel: "#multiAbsenceChecklistContainer", title: "(2) حددي الغائبات", text: "ضعي ✓ أمام كل معلمة غائبة. تُستخرج حصصها وتُوزَّع فوراً على المتفرغات من نفس الأسرة دون ضغط أي زر إضافي. يمكنكِ اختيار غياب حصص معيّنة فقط لا اليوم كاملاً." },
+      { tab: "daily", sel: "#absenceReasonSelect", title: "(3) سبب الغياب", text: "اختاري السبب أو اكتبيه. يظهر في الإحصائيات والتقارير." },
+      { tab: "daily", sel: "#substitutionTableContainer", title: "(4) جدول التوزيع", text: "لكل حصة: الصف، الغائبة، أسرتها، والبديلة المقترحة. قائمة البديلة تعرض المرشحات مرتبةً بالعدالة، وللتعديل اليدوي اختاري أي معلمة أخرى (من أسرة مختلفة إن لزم). ✎ بجانب الاسم يعدّل الاسم ورقم الواتساب مباشرة، و«🚫 إقصاء» يسحب حصص معلمة ويعيد توزيعها." },
+      { tab: "daily", sel: "#fairBadge", title: "العدالة التلقائية ⚖", text: "مفعّلة افتراضياً: يختار النظام البديلة صاحبة الرصيد التراكمي الأقل، ثم الأخف عبئاً اليوم، ثم من مرّ عليها أطول وقت دون احتياط. والمعلمة التي تغيّبت تأخذ حصة احتياط في اليوم التالي (ردّ الغياب). يعرض المؤشر هنا مدى التوازن." },
+      { tab: "daily", sel: "[data-x-act=\"fairness\"]", title: "لوحة العدالة", text: "تعرض رصيد كل معلمة (حصص الاحتياط التي أخذتها) ومن عليها دَين غياب، لتتأكدي أن التوزيع منصف." },
+      { tab: "daily", sel: "#maxSubsSel", title: "الأيام كثيرة الغياب", text: "في الأيام التي يكثر فيها الغياب وتنفد المتفرغات، تأخذ البديلة حصتين (الحد الافتراضي 2، ويمكن 3) ولا يحدث ذلك إلا بعد أن تأخذ كل متفرغة حصة. تُوسم الحصة الثانية «حصة إضافية»." },
+      { tab: "daily", sel: "#btnAutoAssignAll", title: "إعادة التوزيع", text: "إن عدّلتِ شيئاً وأردتِ إعادة الحساب، يعيد هذا الزر توزيع الحصص التلقائية فقط ويحافظ على اختياراتكِ اليدوية." },
+      { tab: "daily", sel: "#noSubPanel", title: "إقصاء معلمة من الاحتياط", text: "لمعلمة لديها ظرف أو تكليف: تُستثنى من الاحتياط فلا تُرشَّح له تلقائياً." },
+      { tab: "daily", sel: "#btnOpenFamilyPrintModal", title: "الطباعة", text: "كشف مستقل لكل أسرة بترويسة رسمية، وفيه عمود «التوقيع بالعلم» لتوقيع البديلة." },
+      { tab: "daily", sel: "[data-x-act=\"waQueue\"]", title: "إشعار المعلمات بالواتساب", text: "يفتح قائمة بالمكلّفات. زر «إرسال للتالية» يفتح محادثة كل معلمة بالتتابع برسالة جاهزة (الحصة والصف والوقت)، وتبقى علامة ✓ على من أُرسل لها. يعمل بتطبيق واتساب أو الويب حسب إعداد الإشعارات." },
+      { tab: "daily", sel: "[data-x-act=\"report\"]", title: "تقرير الاحتياط", text: "عدد حصص الاحتياط لكل معلمة في أي فترة، مع الأيام التي أخذت فيها حصتين وأيام الغياب والرصيد. صدّريه إلى Excel أو اطبعيه لتوثيق العدالة أمام الإدارة." },
+      { tab: "daily", sel: "[data-x-act=\"auditLog\"]", title: "سجل التعديلات", text: "من فعل ماذا ومتى: تسجيل الغياب، تغيير البديلة، تعديل المعلمات، الاستيراد والإرسال." },
+      { tab: "daily", sel: "#conflictBar, [data-x-act=\"backups\"]", title: "التعارضات والنسخ الاحتياطية", text: "يظهر شريط تنبيه أحمر/أصفر إن وُجد تعارض (بديلة غائبة، أو لديها حصة في الوقت نفسه، أو مكلّفة بحصتين في وقت واحد). والنظام يحفظ نسخة تلقائية يومياً (آخر 7) يمكن الاسترجاع منها، ويُفضَّل تنزيل ملف نسخة أسبوعياً." },
+
+      { tab: "stats", sel: "#statsDateInput", need: "stats", title: "إحصائيات الغياب", text: "اختاري يوماً أو أسبوعاً أو شهراً لتري أكثر الأسر والمعلمات غياباً، ولكل جدول زر «تقرير» للطباعة." },
+      { tab: "support", sel: "#supportForm", need: "support", title: "الدعم الفني", text: "أبلغي عن أي مشكلة بمعلومات تشخيصية تلقائية، وجرّبي «فحص النظام» و«الإصلاح التلقائي»، وخذي نسخة احتياطية دورية." },
+      { tab: "daily", title: "انتهت الجولة ✅", text: "ملخص الروتين اليومي: اختاري التاريخ ← حدّدي الغائبات ← راجعي التوزيع والتنبيهات ← أرسلي الواتساب ← اطبعي الكشف. بالتوفيق!" }
     ];
     const TOUR = { i: 0, steps: [], layer: null };
 
