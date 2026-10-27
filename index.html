@@ -1452,8 +1452,31 @@
     }
 
     // ==================== رصيد الاحتياط التراكمي (يُحسب من السجل — لا يتضخم بالتعديل اليدوي) ====================
-    let BALANCE_CACHE = null, LAST_SUB_CACHE = null;
-    function invalidateCaches() { BALANCE_CACHE = null; LAST_SUB_CACHE = null; }
+    let BALANCE_CACHE = null, LAST_SUB_CACHE = null, DEBT_CACHE = null;
+    function invalidateCaches() { BALANCE_CACHE = null; LAST_SUB_CACHE = null; DEBT_CACHE = null; }
+    // «ردّ الغياب»: كل يوم غابت فيه المعلمة (سابق ليوم العمل الحالي) يترتب عليها حصة احتياط تأخذها لاحقاً، وتُسدَّد بأول حصة احتياط تأخذها
+    function buildDebtCache() {
+      DEBT_CACHE = new Map();
+      const cur = state.selectedDate || "9999-12-31";
+      const ev = [];
+      const addDay = (date, absences, subs) => {
+        if (date >= cur) return;
+        const seen = new Set();
+        (absences || []).forEach(a => { if (a && a.teacherId && !seen.has(a.teacherId)) { seen.add(a.teacherId); ev.push([date, 0, a.teacherId]); } });
+        (subs || []).forEach(sl => { if (sl && sl.substituteTeacherId) ev.push([date, 1, sl.substituteTeacherId]); });
+      };
+      Object.keys(state.byDate || {}).forEach(dt => { const d = state.byDate[dt] || {}; addDay(dt, d.absences, d.substitutions); });
+      ev.sort((a, b) => a[0].localeCompare(b[0]) || a[1] - b[1]);
+      ev.forEach(([, kind, id]) => {
+        const v = DEBT_CACHE.get(id) || 0;
+        if (kind === 0) DEBT_CACHE.set(id, v + 1);
+        else if (v > 0) DEBT_CACHE.set(id, v - 1);
+      });
+    }
+    function getAbsenceDebt(member) {
+      if (!DEBT_CACHE) buildDebtCache();
+      return DEBT_CACHE.get(member.id) || 0;
+    }
     function buildBalanceCaches() {
       BALANCE_CACHE = new Map(); LAST_SUB_CACHE = new Map();
       const add = (s, date) => {
@@ -2564,7 +2587,7 @@
           <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800"><span>${esc2(f.d.name)}</span>
           <span style="color:${ok ? "#047857" : "#b45309"}">${ok ? "✓ توزيع متوازن" : "⚠ الفارق " + spread + " — تُقدَّم الأقل رصيدًا"}</span></div>
           <div style="font-size:11px;color:#64748b;margin:2px 0 6px">الأقل ${f.min} • الأعلى ${f.max} • المتوسط ${f.avg.toFixed(1)} حصة</div>
-          ${f.ms.map(x => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0"><span style="width:200px;flex-shrink:0">${esc2(x.m.name)} <span style="color:#94a3b8">(نصاب ${x.q})</span></span><div style="flex:1;background:#f1f5f9;border-radius:6px;height:10px"><div style="width:${Math.round(x.n / top * 100)}%;background:${x.n === f.min ? "#10b981" : x.n === f.max && spread > 1 ? "#f59e0b" : "#0f766e"};height:10px;border-radius:6px"></div></div><b style="width:24px;text-align:left">${x.n}</b></div>`).join("")}
+          ${f.ms.map(x => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0"><span style="width:200px;flex-shrink:0">${esc2(x.m.name)} <span style="color:#94a3b8">(نصاب ${x.q})</span>${getAbsenceDebt(x.m) > 0 ? ' <span style="color:#b45309;font-weight:800">↩ عليها ردّ غياب</span>' : ""}</span><div style="flex:1;background:#f1f5f9;border-radius:6px;height:10px"><div style="width:${Math.round(x.n / top * 100)}%;background:${x.n === f.min ? "#10b981" : x.n === f.max && spread > 1 ? "#f59e0b" : "#0f766e"};height:10px;border-radius:6px"></div></div><b style="width:24px;text-align:left">${x.n}</b></div>`).join("")}
         </div>`;
       }).join("") || '<p style="font-size:13px;color:#64748b">لا توجد بيانات كافية بعد.</p>';
       xModal(`<h3 style="font-weight:900;color:#b45309;font-size:17px">⚖ عدالة توزيع حصص الاحتياط</h3>
@@ -3515,6 +3538,9 @@
         const last = getLastSubDate(member);
         const lastDays = last ? Math.max(0, Math.round((new Date((state.selectedDate || last) + "T12:00:00") - new Date(last + "T12:00:00")) / 86400000)) : 365;
         priorityScore -= Math.min(lastDays, 365) * 0.01;
+        // ردّ الغياب: المعلمة التي غابت سابقاً ولم تأخذ حصة احتياط بعدها تُقدَّم على غيرها في أسرتها
+        const debt = getAbsenceDebt(member);
+        if (debt > 0 && eligibleForAuto) priorityScore -= 500 + debt * 5;
 
         candidates.push({
           member,
@@ -3523,7 +3549,8 @@
           dailySubCount,
           dailyLoad,
           eligibleForAuto,
-          priorityScore
+          priorityScore,
+          debt
         });
       });
 
@@ -3659,6 +3686,7 @@
         if (pick.cands.length > 0) {
           pick.slot.substituteTeacherId = pick.cands[0].member.id;
           pick.slot.assignmentMode = "auto";
+          pick.slot.repay = pick.cands[0].debt > 0;
           invalidateCaches();
           assignedCount++;
         } else {
@@ -4105,7 +4133,7 @@
         if (subT) {
           const isSameFamily = absentT && sameFamily(subT.dept, absentT.dept);
           if (isSameFamily && slot.assignmentMode !== "manual") {
-            matchBadge = `<span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold text-[11px] border border-emerald-200">✓ تلقائي • نفس الأسرة (حصة 1)</span>`;
+            matchBadge = `<span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold text-[11px] border border-emerald-200">✓ تلقائي • نفس الأسرة (حصة 1)</span>` + (slot.repay ? ` <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200">↩ ردّ غياب سابق</span>` : "");
           } else if (isSameFamily && slot.assignmentMode === "manual") {
             matchBadge = `<span class="px-2.5 py-1 rounded-full bg-teal-50 text-teal-800 font-bold text-[11px] border border-teal-200">تحديد يدوي • نفس الأسرة</span>`;
           } else {
