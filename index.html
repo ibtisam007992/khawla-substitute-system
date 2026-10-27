@@ -2910,6 +2910,7 @@
           return { it, m: bs >= 35 ? best : null, sc: bs };
         });
         match.sort((a, b) => b.sc - a.sc).forEach(x => { if (x.m) { if (used.has(x.m.id)) x.m = null; else used.add(x.m.id); } });
+        if (!pool.length) { showToast("لا توجد معلمات في النظام حالياً (الكادر فارغ). استوردي الجدول المدرسي أو كشف الكادر أولاً ثم أعيدي استيراد الأرقام.", "error"); return; }
         const opts = (sel) => `<option value="">— لا تطبيق —</option>` + pool.map(m => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc2(m.name)}${normalizePhone(m.phone) ? " ✓" : ""}</option>`).join("");
         const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">📞 معاينة أرقام الواتساب (${list.length} سطر)</h3>
           <p style="font-size:12px;color:#475569;margin:4px 0">طُوبقت <b id="phOk">${match.filter(x => x.m).length}</b> من ${list.length}. راجعي المطابقة وغيّري أي سطر من القائمة. الأسطر غير المطابقة لا تُطبَّق.</p>
