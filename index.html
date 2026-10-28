@@ -922,6 +922,7 @@
             <p class="text-xs text-slate-500 font-semibold">المسؤول الفني • مديرة المدرسة • مساعدة المديرة • مسؤولة احتياطي الأسرة</p>
           </div>
           <div class="flex flex-wrap gap-2">
+            <button type="button" data-x-act="accList" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">📋 الحسابات المفعّلة (طباعة / Excel)</button>
             <button type="button" data-x-act="famAccounts" class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs">👥 إنشاء حسابات مسؤولات الأسر دفعة واحدة</button>
             <button type="button" data-acc-act="new" class="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs">+ إضافة حساب</button>
           </div>
@@ -2958,7 +2959,34 @@
       } catch (e) { showToast("تعذّر قراءة الملف: " + clean(e.message), "error"); }
     }
 
+    function accRows(onlyActive) {
+      return (AUTH.users || []).filter(u => !onlyActive || u.active).map(u => {
+        const m = u.staffId && state.staff.find(x => x.id === u.staffId);
+        return [u.name, u.username, ROLES[u.role] + (u.role === "familyLead" ? " — " + getDeptObj(u.deptId).shortName : ""), m ? m.name : "", m && m.phone ? m.phone : "", u.last ? u.last.slice(0, 16).replace("T", " ") : "لم تدخل بعد", u.active ? "مفعّل" : "معطّل"];
+      });
+    }
+    function showAccList() {
+      if (!can("accounts")) return;
+      const head = ["الاسم", "اسم المستخدم", "الدور", "المعلمة المرتبطة", "الهاتف", "آخر دخول", "الحالة"];
+      const rows = accRows(true);
+      const w = xModal(`<h3 style="font-weight:900;color:#0f766e;font-size:16px">📋 الحسابات المفعّلة (${rows.length} من ${(AUTH.users || []).length})</h3>
+        <p style="font-size:12px;color:#b45309;margin:4px 0 8px">كلمات المرور مخزّنة مشفّرة ولا يمكن عرضها. لإعطاء حساب كلمة جديدة استخدمي «تعديل» ثم اكتبي كلمة مرور جديدة.</p>
+        <div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" id="alCsv" style="background:#0f766e;color:#fff;border-radius:10px;padding:6px 12px;border:0;font-weight:800;cursor:pointer">⬇ Excel</button><button type="button" id="alPrint" style="background:#475569;color:#fff;border-radius:10px;padding:6px 12px;border:0;font-weight:800;cursor:pointer">🖨 طباعة</button></div>
+        <div id="alBody"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f1f5f9">${head.map(h => `<th style="padding:6px;text-align:right">${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr style="border-bottom:1px solid #e2e8f0">${r.map((c, i) => `<td style="padding:6px;${i === 1 || i === 4 ? "direction:ltr;text-align:right;" : ""}${i === 0 ? "font-weight:800" : ""}">${esc2(c)}</td>`).join("")}</tr>`).join("") || "<tr><td>لا توجد حسابات مفعّلة</td></tr>"}</tbody></table></div>
+        <div style="margin-top:10px"><button type="button" data-x-close style="background:#e2e8f0;font-weight:800;border-radius:12px;padding:8px 16px;border:0;cursor:pointer">إغلاق</button></div>`);
+      w.querySelector("#alCsv").onclick = () => {
+        const csv = [head].concat(rows).map(l => l.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+        a.download = "الحسابات-المفعلة.csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      };
+      w.querySelector("#alPrint").onclick = () => {
+        const pw = window.open("", "_blank"); if (!pw) return;
+        pw.document.write(`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>الحسابات المفعّلة</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #333;padding:5px;font-size:12px}</style></head><body><h3>مدرسة خولة بنت حكيم للبنات (9-12) — الحسابات المفعّلة</h3>${w.querySelector("#alBody").innerHTML}</body></html>`);
+        pw.document.close(); pw.focus(); setTimeout(() => pw.print(), 300);
+      };
+    }
     function xAction(act) {
+      if (act === "accList") return showAccList();
       if (act === "report") return showReport();
       if (act === "auditLog") return showAuditLog();
       if (act === "conflicts") return showConflicts();
