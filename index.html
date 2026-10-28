@@ -20,6 +20,9 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     body {
@@ -107,6 +110,7 @@
         <p class="text-[11px] text-slate-600 leading-relaxed">المسؤول الفني يدير حسابات مديرة المدرسة ومساعدتها ومسؤولات احتياطي الأسر، وله صلاحيات كاملة على النظام.</p>
         <input id="setupName" type="text" placeholder="الاسم الكامل" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <input id="setupUser" type="text" autocomplete="username" placeholder="اسم المستخدم (إنجليزي بدون مسافات)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" dir="ltr" />
+        <input id="setupEmail" type="email" dir="ltr" placeholder="بريدكِ الإلكتروني (لاستعادة كلمة المرور — موصى به)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <input id="setupPass" type="password" autocomplete="new-password" placeholder="كلمة المرور (6 أحرف فأكثر)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <input id="setupPass2" type="password" autocomplete="new-password" placeholder="تأكيد كلمة المرور" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
         <p id="authSetupMsg" class="text-xs font-bold text-rose-700 min-h-[1rem]"></p>
@@ -2024,6 +2028,274 @@
     const K_ACC = "khawla_accounts_v1", K_AUDIT = "khawla_audit_v1", K_TICKETS = "khawla_tickets_v1",
       K_NOTIFY = "khawla_notify_v1", K_SUPPORT = "khawla_support_v1";
     const AUTH = { users: [], me: null, fails: 0, lockUntil: 0 };
+    // ==================== الربط السحابي (Firebase) ====================
+    const FB_CFG = { apiKey: "AIzaSyBvzcuX95ve55TEa9egr3wyKwtChWytbFE", authDomain: "khawla-substitute-push.firebaseapp.com", projectId: "khawla-substitute-push", storageBucket: "khawla-substitute-push.firebasestorage.app", messagingSenderId: "823037914357", appId: "1:823037914357:web:1f5b807a8053a01f9729bc" };
+    const EMAIL_DOM = "@khawla-school.app";
+    const CLOUD = { on: false, auth: null, db: null, sec: null, hashes: {}, unsub: [], coreLoaded: false, daysLoaded: false, loggingIn: false, timer: null, rt: null };
+    (function cloudInit() {
+      try {
+        if (typeof firebase === "undefined" || !/\.(web\.app|firebaseapp\.com)$/.test(location.hostname)) return;
+        firebase.initializeApp(FB_CFG);
+        CLOUD.auth = firebase.auth(); CLOUD.db = firebase.firestore(); CLOUD.on = true;
+      } catch (e) { CLOUD.on = false; }
+    })();
+    function qHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h + ":" + s.length; }
+    const cdoc = (p) => CLOUD.db.doc(p);
+    function cloudErr(e) {
+      const c = (e && e.code) || "";
+      if (/network|unavailable/.test(c)) return "تعذّر الاتصال بالإنترنت";
+      if (/configuration-not-found|operation-not-allowed/.test(c)) return "لم يُفعَّل تسجيل الدخول بالبريد في Firebase بعد (Authentication ← Sign-in method)";
+      if (/permission-denied/.test(c)) return "لا تملكين صلاحية هذه العملية";
+      if (/too-many/.test(c)) return "محاولات كثيرة — انتظري قليلاً ثم أعيدي المحاولة";
+      return clean(e && e.message || "خطأ غير معروف");
+    }
+    async function cloudLoadProfile(fb) {
+      const d = await cdoc("users/" + fb.uid).get();
+      if (!d.exists || !d.data().active) return null;
+      return Object.assign({ id: fb.uid }, d.data());
+    }
+    async function cloudBoot() {
+      const rf = document.getElementById("authRestoreInput"); if (rf && rf.closest("div")) rf.closest("div").classList.add("hidden");
+      const rec = document.getElementById("authRecoverForm");
+      rec.innerHTML = `<h2 class="text-sm font-extrabold text-teal-900">استعادة كلمة المرور</h2>
+        <input id="recUser" type="text" placeholder="اسم المستخدم" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold" />
+        <p id="authRecoverMsg" class="text-xs font-bold text-rose-700 min-h-[1rem]"></p>
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm">إرسال رابط الاستعادة إلى بريدي</button>
+        <p class="text-[11px] text-slate-600 leading-relaxed">إن كان حسابكِ مرتبطاً ببريد إلكتروني وصلكِ رابط لتعيين كلمة مرور جديدة. وإن لم يكن، تواصلي مع المسؤول الفني ليعيّن لكِ كلمة مرور جديدة. ونسيان اسم المستخدم: اسألي المسؤول الفني أيضاً.</p>
+        <button type="button" data-auth-go="login" class="w-full text-xs font-bold text-slate-600 hover:underline">رجوع</button>`;
+      const se = document.getElementById("setupEmailWrap"); if (se) se.classList.remove("hidden");
+      authPanel("login");
+      try {
+        const s = await cdoc("meta/setup").get();
+        if (!s.exists) authPanel("setup");
+      } catch (e) { document.getElementById("authLoginMsg").textContent = cloudErr(e); }
+      CLOUD.auth.onAuthStateChanged(async (fb) => {
+        if (!fb || AUTH.me || CLOUD.loggingIn) return;
+        try { const p = await cloudLoadProfile(fb); if (p) enterApp(p, true); else await CLOUD.auth.signOut(); } catch (e) { /* */ }
+      });
+    }
+    async function cloudLogin() {
+      const msg = document.getElementById("authLoginMsg");
+      if (Date.now() < AUTH.lockUntil) { msg.textContent = `محاولات كثيرة — انتظري ${Math.ceil((AUTH.lockUntil - Date.now()) / 1000)} ثانية`; return; }
+      const uname = clean(document.getElementById("authUser").value).toLowerCase();
+      const pw = document.getElementById("authPass").value;
+      if (!uname || !pw) { msg.textContent = "أدخلي اسم المستخدم وكلمة المرور"; return; }
+      const remember = document.getElementById("authRemember").checked;
+      CLOUD.loggingIn = true; msg.textContent = "جارٍ الدخول...";
+      try {
+        const un = await cdoc("usernames/" + uname).get();
+        if (!un.exists) throw { code: "auth/user-not-found" };
+        await CLOUD.auth.setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
+        const cred = await CLOUD.auth.signInWithEmailAndPassword(un.data().email, pw);
+        const p = await cloudLoadProfile(cred.user);
+        if (!p) { await CLOUD.auth.signOut(); msg.textContent = "هذا الحساب معطّل أو محذوف — تواصلي مع المسؤول الفني"; return; }
+        AUTH.fails = 0; msg.textContent = "";
+        enterApp(p, remember);
+      } catch (e) {
+        if (/network|unavailable|configuration|operation-not-allowed|too-many/.test(e.code || "")) msg.textContent = cloudErr(e);
+        else { AUTH.fails++; if (AUTH.fails >= 5) { AUTH.lockUntil = Date.now() + 30000; AUTH.fails = 0; } msg.textContent = "اسم المستخدم أو كلمة المرور غير صحيحة"; }
+      } finally { CLOUD.loggingIn = false; }
+    }
+    async function cloudSetup() {
+      const msg = document.getElementById("authSetupMsg");
+      const name = clean(document.getElementById("setupName").value);
+      const uname = document.getElementById("setupUser").value.trim().toLowerCase();
+      const mail = clean((document.getElementById("setupEmail") || {}).value || "").toLowerCase();
+      const p1 = document.getElementById("setupPass").value, p2 = document.getElementById("setupPass2").value;
+      if (!name) { msg.textContent = "أدخلي الاسم الكامل"; return; }
+      if (!/^[a-z0-9_.-]{3,30}$/.test(uname)) { msg.textContent = "اسم المستخدم: 3–30 حرفاً إنجليزياً/أرقاماً بدون مسافات"; return; }
+      if (mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { msg.textContent = "البريد الإلكتروني غير صحيح"; return; }
+      if (p1.length < 6) { msg.textContent = "كلمة المرور 6 أحرف على الأقل"; return; }
+      if (p1 !== p2) { msg.textContent = "كلمتا المرور غير متطابقتين"; return; }
+      const email = mail || (uname + EMAIL_DOM);
+      CLOUD.loggingIn = true; msg.textContent = "جارٍ إنشاء الحساب...";
+      try {
+        const cred = await CLOUD.auth.createUserWithEmailAndPassword(email, p1);
+        const prof = { name, username: uname, role: "tech", deptId: "", staffId: "", active: true, created: new Date().toISOString(), last: "" };
+        const b = CLOUD.db.batch();
+        b.set(cdoc("users/" + cred.user.uid), prof);
+        b.set(cdoc("usernames/" + uname), { email, uid: cred.user.uid, real: !!mail });
+        b.set(cdoc("meta/setup"), { uid: cred.user.uid, t: new Date().toISOString() });
+        try { await b.commit(); } catch (e) { try { await cred.user.delete(); } catch (x) { /* */ } throw e; }
+        msg.textContent = "";
+        enterApp(Object.assign({ id: cred.user.uid }, prof), true);
+      } catch (e) { msg.textContent = /email-already/.test(e.code || "") ? "هذا البريد/المستخدم مسجّل مسبقاً — جرّبي اسماً آخر" : cloudErr(e); }
+      finally { CLOUD.loggingIn = false; }
+    }
+    async function cloudRecover() {
+      const msg = document.getElementById("authRecoverMsg");
+      const uname = clean(document.getElementById("recUser").value).toLowerCase();
+      if (!uname) { msg.textContent = "أدخلي اسم المستخدم"; return; }
+      try {
+        const un = await cdoc("usernames/" + uname).get();
+        if (!un.exists || !un.data().real) { msg.textContent = "هذا الحساب غير مرتبط ببريد إلكتروني — تواصلي مع المسؤول الفني لتعيين كلمة مرور جديدة"; return; }
+        await CLOUD.auth.sendPasswordResetEmail(un.data().email);
+        msg.style.color = "#047857"; msg.textContent = "أُرسل رابط الاستعادة إلى بريدكِ (راجعي الوارد والبريد غير المرغوب)";
+      } catch (e) { msg.style.color = ""; msg.textContent = cloudErr(e); }
+    }
+    // ---- إنشاء حساب موظفة عبر تطبيق ثانوي (لا يُخرج المسؤول الفني من جلسته) ----
+    async function cloudAuthCreate(email, pw) {
+      if (!CLOUD.sec) CLOUD.sec = firebase.initializeApp(FB_CFG, "sec");
+      const a = CLOUD.sec.auth();
+      const cred = await a.createUserWithEmailAndPassword(email, pw);
+      const uid = cred.user.uid;
+      await a.signOut();
+      return uid;
+    }
+    async function cloudCreateUser(p, pw) {
+      const un = await cdoc("usernames/" + p.username).get();
+      if (un.exists) throw new Error("اسم المستخدم مستخدم مسبقاً");
+      const email = p.username + EMAIL_DOM;
+      const uid = await cloudAuthCreate(email, pw);
+      const prof = { name: p.name, username: p.username, role: p.role, deptId: p.deptId || "", staffId: p.staffId || "", active: p.active !== false, created: new Date().toISOString(), last: "" };
+      const b = CLOUD.db.batch();
+      b.set(cdoc("users/" + uid), prof); b.set(cdoc("usernames/" + p.username), { email, uid, real: false });
+      await b.commit();
+      return uid;
+    }
+    async function cloudResetPassword(u, pw) {
+      const email = u.username + "." + Date.now().toString(36) + EMAIL_DOM;
+      const uid = await cloudAuthCreate(email, pw);
+      const prof = { name: u.name, username: u.username, role: u.role, deptId: u.deptId || "", staffId: u.staffId || "", active: u.active !== false, created: u.created || new Date().toISOString(), last: u.last || "" };
+      const b = CLOUD.db.batch();
+      b.set(cdoc("users/" + uid), prof); b.delete(cdoc("users/" + u.id)); b.set(cdoc("usernames/" + u.username), { email, uid, real: false });
+      await b.commit();
+    }
+    async function cloudSaveAccount() {
+      const msg = document.getElementById("accMsg");
+      const id = document.getElementById("accId").value;
+      const name = clean(document.getElementById("accName").value);
+      const uname = document.getElementById("accUser").value.trim().toLowerCase();
+      const role = document.getElementById("accRole").value;
+      const pw = document.getElementById("accPass").value;
+      const active = document.getElementById("accActive").checked;
+      const deptId = role === "familyLead" ? document.getElementById("accDept").value : "";
+      const staffId = (role === "familyLead" || role === "reserveAll") ? document.getElementById("accStaff").value : "";
+      if (!name) { msg.textContent = "أدخلي الاسم"; return; }
+      const u = id ? AUTH.users.find(x => x.id === id) : null;
+      if (!u) {
+        if (!/^[a-z0-9_.-]{3,30}$/.test(uname)) { msg.textContent = "اسم المستخدم: 3–30 حرفاً إنجليزياً/أرقاماً بدون مسافات"; return; }
+        if (pw.length < 6) { msg.textContent = "كلمة المرور 6 أحرف على الأقل"; return; }
+      } else if (pw && pw.length < 6) { msg.textContent = "كلمة المرور 6 أحرف على الأقل"; return; }
+      if (u && u.role === "tech" && (role !== "tech" || !active) && AUTH.users.filter(x => x.role === "tech" && x.active).length <= 1) { msg.textContent = "لا يمكن تغيير دور/تعطيل آخر مسؤول فني"; return; }
+      msg.textContent = "جارٍ الحفظ...";
+      try {
+        if (!u) { await cloudCreateUser({ name, username: uname, role, deptId, staffId, active }, pw); audit(`إنشاء حساب (${name}) بدور ${ROLES[role]}`); }
+        else {
+          const upd = { name, role, deptId, staffId, active };
+          await cdoc("users/" + u.id).update(upd);
+          audit(`تعديل حساب (${u.name})`);
+          if (pw) { await cloudResetPassword(Object.assign({}, u, upd), pw); audit(`تعيين كلمة مرور جديدة للحساب (${u.name})`); }
+        }
+        document.getElementById("accountModal").classList.add("hidden"); msg.textContent = "";
+        showToast("تم حفظ الحساب");
+      } catch (e) { msg.textContent = cloudErr(e); }
+    }
+    async function cloudAccountAct(act, u) {
+      try {
+        if (act === "toggle") { await cdoc("users/" + u.id).update({ active: !u.active }); audit(`${u.active ? "تعطيل" : "تفعيل"} حساب (${u.name})`); }
+        else if (act === "del") {
+          const b = CLOUD.db.batch(); b.delete(cdoc("users/" + u.id)); b.delete(cdoc("usernames/" + u.username)); await b.commit(); audit(`حذف حساب (${u.name})`);
+        }
+      } catch (e) { showToast(cloudErr(e), "error"); }
+    }
+    async function cloudChangePassword() {
+      const msg = document.getElementById("pwdMsg");
+      const o = document.getElementById("pwdOld").value, n = document.getElementById("pwdNew").value;
+      if (n.length < 6) { msg.textContent = "الجديدة 6 أحرف على الأقل"; return; }
+      try {
+        const fb = CLOUD.auth.currentUser;
+        await fb.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(fb.email, o));
+        await fb.updatePassword(n);
+        audit("تغيير كلمة المرور");
+        document.getElementById("pwdModal").classList.add("hidden");
+        document.getElementById("pwdOld").value = ""; document.getElementById("pwdNew").value = ""; msg.textContent = "";
+        showToast("تم تغيير كلمة المرور");
+      } catch (e) { msg.textContent = /wrong-password|invalid-credential/.test(e.code || "") ? "كلمة المرور الحالية غير صحيحة" : cloudErr(e); }
+    }
+    // ---- مزامنة البيانات ----
+    function cloudApplyCore(j) {
+      try {
+        const arr = JSON.parse(j); if (!Array.isArray(arr)) return;
+        state.staff = arr; state.staff.forEach(sanitizeStaffRecord);
+        CLOUD.hashes.core = qHash(JSON.stringify(state.staff));
+      } catch (e) { /* */ }
+    }
+    function cloudApplyDay(date, j) {
+      let d = { absences: [], substitutions: [] };
+      if (j) { try { d = JSON.parse(j); } catch (e) { return; } }
+      d.absences = d.absences || []; d.substitutions = d.substitutions || [];
+      if (date === state.selectedDate) { state.absences = d.absences; state.substitutions = d.substitutions; }
+      else if (d.absences.length || d.substitutions.length) state.byDate[date] = d; else delete state.byDate[date];
+      CLOUD.hashes["d:" + date] = (d.absences.length || d.substitutions.length) ? qHash(JSON.stringify({ absences: d.absences, substitutions: d.substitutions })) : "";
+    }
+    function cloudRefresh() {
+      clearTimeout(CLOUD.rt);
+      CLOUD.rt = setTimeout(() => { try { invalidateCaches(); renderAll(); } catch (e) { /* */ } }, 250);
+    }
+    function cloudStart() {
+      if (!CLOUD.on || CLOUD.started) return; CLOUD.started = true;
+      const me = AUTH.me;
+      try { cdoc("users/" + me.id).update({ last: new Date().toISOString() }); } catch (e) { /* */ }
+      if (me.role === "tech") {
+        CLOUD.unsub.push(CLOUD.db.collection("users").onSnapshot(s => {
+          AUTH.users = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
+          try { renderAccounts(); } catch (e) { /* */ }
+        }, () => { /* */ }));
+      }
+      CLOUD.unsub.push(cdoc("state/core").onSnapshot(s => {
+        if (s.metadata.fromCache && navigator.onLine) return;
+        if (!s.metadata.hasPendingWrites) {
+          const j = s.exists ? (s.data().j || "") : "";
+          if (j) { const h = qHash(j); if (h !== CLOUD.hashes.coreRaw) { CLOUD.hashes.coreRaw = h; cloudApplyCore(j); if (CLOUD.coreLoaded) cloudRefresh(); } }
+        }
+        if (!CLOUD.coreLoaded) { CLOUD.coreLoaded = true; CLOUD.coreExists = s.exists; cloudRefresh(); cloudPush(true); }
+      }, e => showToast("تعذّر مزامنة البيانات: " + cloudErr(e), "error")));
+      CLOUD.unsub.push(CLOUD.db.collection("days").onSnapshot(s => {
+        if (s.metadata.fromCache && navigator.onLine) return;
+        let ch = false;
+        s.docChanges().forEach(c => {
+          if (c.doc.metadata.hasPendingWrites) return;
+          const date = c.doc.id, j = c.type === "removed" ? "" : (c.doc.data().j || "");
+          const h = j ? qHash(j) : "";
+          if (CLOUD.hashes["d:" + date + ":raw"] === h) return;
+          CLOUD.hashes["d:" + date + ":raw"] = h;
+          cloudApplyDay(date, j); ch = true;
+        });
+        if (!CLOUD.daysLoaded) { CLOUD.daysLoaded = true; ch = true; cloudPush(true); }
+        if (ch) cloudRefresh();
+      }, () => { /* */ }));
+    }
+    function cloudPush(now) {
+      if (!CLOUD.on || !AUTH.me || !CLOUD.coreLoaded || !CLOUD.daysLoaded) return;
+      clearTimeout(CLOUD.timer);
+      CLOUD.timer = setTimeout(cloudDoPush, now ? 300 : 1200);
+    }
+    async function cloudDoPush() {
+      try {
+        const b = CLOUD.db.batch(); let n = 0; const stamp = { t: new Date().toISOString(), by: AUTH.me.name || "" };
+        const cj = JSON.stringify(state.staff), ch = qHash(cj);
+        if (ch !== CLOUD.hashes.core && !(state.staff.length === 0 && !CLOUD.coreExists && CLOUD.hashes.core === undefined)) {
+          b.set(cdoc("state/core"), Object.assign({ j: cj }, stamp)); CLOUD.hashes.core = ch; CLOUD.hashes.coreRaw = ch; CLOUD.coreExists = true; n++;
+        }
+        const days = allDaysData(), seen = new Set();
+        Object.keys(days).forEach(dt => {
+          seen.add(dt);
+          const d = days[dt], key = "d:" + dt;
+          if (!d.absences.length && !d.substitutions.length) {
+            if (CLOUD.hashes[key]) { b.delete(cdoc("days/" + dt)); CLOUD.hashes[key] = ""; CLOUD.hashes[key + ":raw"] = ""; n++; }
+            return;
+          }
+          const j = JSON.stringify({ absences: d.absences, substitutions: d.substitutions }), h = qHash(j);
+          if (h !== CLOUD.hashes[key]) { b.set(cdoc("days/" + dt), Object.assign({ j }, stamp)); CLOUD.hashes[key] = h; CLOUD.hashes[key + ":raw"] = h; n++; }
+        });
+        Object.keys(CLOUD.hashes).forEach(k => {
+          if (/^d:\d{4}-\d{2}-\d{2}$/.test(k) && CLOUD.hashes[k] && !seen.has(k.slice(2))) { b.delete(cdoc("days/" + k.slice(2))); CLOUD.hashes[k] = ""; CLOUD.hashes[k + ":raw"] = ""; n++; }
+        });
+        if (n) await b.commit();
+      } catch (e) { showToast("تعذّر حفظ البيانات في السحابة: " + cloudErr(e), "error"); }
+    }
+
 
     function lsGet(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
     function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ممتلئ */ } }
@@ -2076,7 +2348,7 @@
       log.unshift({ t: new Date().toISOString(), u: AUTH.me ? AUTH.me.name : "—", a: clean(action) });
       lsSet(K_AUDIT, log.slice(0, 600));
     }
-    function saveUsers() { lsSet(K_ACC, AUTH.users); }
+    function saveUsers() { if (CLOUD.on) return; lsSet(K_ACC, AUTH.users); }
 
     // ---------- الدخول ----------
     function authPanel(which) {
@@ -2092,6 +2364,7 @@
       user.last = new Date().toISOString();
       saveUsers();
       audit("تسجيل دخول");
+      if (CLOUD.on) cloudStart();
       document.getElementById("authOverlay").classList.add("hidden");
       document.body.setAttribute("data-role", user.role);
       document.getElementById("userChip").classList.remove("hidden");
@@ -2137,6 +2410,7 @@
 
     function logout() {
       audit("تسجيل خروج");
+      if (CLOUD.on) { try { CLOUD.auth.signOut().then(() => location.reload(), () => location.reload()); } catch (e) { location.reload(); } return; }
       AUTH.me = null;
       try { sessionStorage.removeItem("khawla_session"); localStorage.removeItem("khawla_remember"); } catch (e) { /* */ }
       document.body.removeAttribute("data-role");
@@ -2157,6 +2431,7 @@
     }
 
     async function doLogin() {
+      if (CLOUD.on) return cloudLogin();
       const msg = document.getElementById("authLoginMsg");
       if (Date.now() < AUTH.lockUntil) { msg.textContent = `محاولات كثيرة — انتظري ${Math.ceil((AUTH.lockUntil - Date.now()) / 1000)} ثانية`; return; }
       const uname = clean(document.getElementById("authUser").value).toLowerCase();
@@ -2174,6 +2449,7 @@
     }
 
     async function doSetup() {
+      if (CLOUD.on) return cloudSetup();
       const msg = document.getElementById("authSetupMsg");
       const name = clean(document.getElementById("setupName").value);
       const uname = document.getElementById("setupUser").value.trim().toLowerCase();
@@ -2193,6 +2469,7 @@
     }
 
     async function doRecover() {
+      if (CLOUD.on) return cloudRecover();
       const msg = document.getElementById("authRecoverMsg");
       const code = document.getElementById("recCode").value.trim().toUpperCase().replace(/-/g, "");
       const np = document.getElementById("recPass").value;
@@ -2257,6 +2534,7 @@
       document.getElementById("accDept").classList.toggle("hidden", r !== "familyLead");
     }
     async function saveAccount() {
+      if (CLOUD.on) return cloudSaveAccount();
       const msg = document.getElementById("accMsg");
       const id = document.getElementById("accId").value;
       const name = clean(document.getElementById("accName").value);
@@ -2301,16 +2579,19 @@
       const lastTech = u.role === "tech" && AUTH.users.filter(x => x.role === "tech" && x.active).length <= 1;
       if (act === "toggle") {
         if (lastTech && u.active) { showToast("لا يمكن تعطيل آخر مسؤول فني", "error"); return; }
+        if (CLOUD.on) { cloudAccountAct("toggle", u); return; }
         u.active = !u.active; audit(`${u.active ? "تفعيل" : "تعطيل"} حساب (${u.name})`);
       } else if (act === "del") {
         if (lastTech) { showToast("لا يمكن حذف آخر مسؤول فني", "error"); return; }
         if (!confirm(`حذف حساب (${u.name}) نهائياً؟`)) return;
+        if (CLOUD.on) { cloudAccountAct("del", u); return; }
         AUTH.users = AUTH.users.filter(x => x.id !== id); audit(`حذف حساب (${u.name})`);
       }
       saveUsers(); renderAccounts();
     }
 
     async function changeMyPassword() {
+      if (CLOUD.on) return cloudChangePassword();
       const msg = document.getElementById("pwdMsg");
       const o = document.getElementById("pwdOld").value, n = document.getElementById("pwdNew").value;
       if (!(await verifyPass(o, AUTH.me))) { msg.textContent = "كلمة المرور الحالية غير صحيحة"; return; }
@@ -2534,6 +2815,7 @@
 
     // --- إعادة ضبط الحسابات عند فقدان رمز الاستعادة ---
     function resetAccountsFlow() {
+      if (CLOUD.on) { showToast("في الوضع السحابي تُدار الحسابات من تبويب الحسابات", "info"); return; }
       const ans = prompt("سيتم حذف كل حسابات الدخول فقط (تبقى بيانات المعلمات والجداول).\nللتأكيد اكتبي كلمة: تأكيد");
       if (ans === null || ans.trim() !== "تأكيد") { showToast("لم تتم إعادة الضبط"); return; }
       try { localStorage.removeItem(K_ACC); localStorage.removeItem("khawla_remember"); sessionStorage.removeItem("khawla_session"); } catch (e) { /* */ }
@@ -2557,7 +2839,9 @@
         const pw = randPass(), salt = rid();
         // أسرة العلوم (الفيزياء + الكيمياء + الأحياء) مسؤولتها المعلمة ليثاء باعقبه
         const lead = d.id === "science" ? state.staff.find(m => /ليثاء/.test(m.name) && /باعقب/.test(m.name)) : null;
-        AUTH.users.push({ id: "u-" + rid(), name: lead ? lead.name : "مسؤولة احتياطي " + d.shortName, staffId: lead ? lead.id : "", username: un, role: "familyLead", deptId: d.id, salt, hash: await hashPass(pw, salt), active: true, created: new Date().toISOString(), last: "" });
+        const prof = { name: lead ? lead.name : "مسؤولة احتياطي " + d.shortName, staffId: lead ? lead.id : "", username: un, role: "familyLead", deptId: d.id, active: true };
+        if (CLOUD.on) { try { await cloudCreateUser(prof, pw); } catch (e) { showToast("تعذّر إنشاء حساب " + d.shortName + ": " + cloudErr(e), "error"); continue; } }
+        else AUTH.users.push(Object.assign({ id: "u-" + rid(), salt, hash: await hashPass(pw, salt), created: new Date().toISOString(), last: "" }, prof));
         made.push({ dept: d.shortName + (lead ? " — " + lead.name : ""), un, pw });
       }
       saveUsers(); audit(`إنشاء ${made.length} حساب لمسؤولات الأسر`); renderAccounts();
@@ -2615,7 +2899,7 @@
           state.masterDept = "all"; state.subTableFamilyFilter = "all"; state.printTargetFamily = "all"; state.freePeriodNum = "all";
           state.multiSelectedTeacherIds = [];
           const before = AUTH.users.length;
-          AUTH.users = AUTH.users.filter(u => u.role !== "familyLead"); if (AUTH.users.length !== before) saveUsers();
+          if (!CLOUD.on) { AUTH.users = AUTH.users.filter(u => u.role !== "familyLead"); if (AUTH.users.length !== before) saveUsers(); }
         }
         state.lastParsed = null;
         try { localStorage.removeItem("khawla_last_pdf"); } catch (e) { /* */ }
@@ -3640,7 +3924,7 @@
       let sid = null;
       try { sid = sessionStorage.getItem("khawla_session") || localStorage.getItem("khawla_remember"); } catch (e) { /* */ }
       const u = AUTH.users.find(x => x.id === sid && x.active);
-      if (u) enterApp(u, false); else authPanel(AUTH.users.length ? "login" : "setup");
+      if (CLOUD.on) cloudBoot(); else if (u) enterApp(u, false); else authPanel(AUTH.users.length ? "login" : "setup");
       let srvTick = 0;
       setInterval(() => { tickNotify(); syncRemindersToSW(); if (++srvTick % 4 === 0 && AUTH.me) srvPublish(false); }, 15000);
       initPwa();
@@ -3750,6 +4034,7 @@
       invalidateCaches();
       try { maybeSnapshot(false); } catch (e) { /* */ }
       try { schedulePublish(); } catch (e) { /* */ }
+      try { cloudPush(false); } catch (e) { /* */ }
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify({
           v: 7,
