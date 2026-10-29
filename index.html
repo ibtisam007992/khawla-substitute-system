@@ -2945,14 +2945,16 @@
     // --- فتح واتساب (تطبيق / ويب / تلقائي) ---
     function openWhatsApp(phone, text) {
       const ph = normalizePhone(phone || "");
-      const mode = NOTIFY.waMode || "auto";
+      let mode = NOTIFY.waMode || "auto";
+      if (mode === "auto" && !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) mode = "web";
       const q = encodeURIComponent(text || "");
       if (mode === "app") {
         const a = document.createElement("a");
         a.href = `whatsapp://send?${ph ? "phone=" + ph + "&" : ""}text=${q}`;
         document.body.appendChild(a); a.click(); a.remove();
       } else if (mode === "web") {
-        window.open(`https://web.whatsapp.com/send?${ph ? "phone=" + ph + "&" : ""}text=${q}`, "_blank", "noopener");
+        window.open(`https://web.whatsapp.com/send?${ph ? "phone=" + ph + "&" : ""}text=${q}`, "waweb");
+        try { showToast("فُتحت المحادثة في واتساب ويب — اضغطي زر الإرسال ▶ داخل واتساب لإرسال الرسالة", "info"); } catch (e) { /* */ }
       } else {
         window.open(`https://wa.me/${ph}?text=${q}`, "_blank", "noopener");
       }
